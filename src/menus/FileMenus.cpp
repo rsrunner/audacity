@@ -266,11 +266,11 @@ void OnExportSelection(const CommandContext &context)
       selectedRegion.t1());
 }
 
-void OnExportLabels(const CommandContext &context)
+void OnExportLabels(const CommandContext& context)
 {
-   auto &project = context.project;
-   auto &tracks = TrackList::Get( project );
-   auto &window = GetProjectFrame( project );
+   auto& project = context.project;
+   auto& tracks = TrackList::Get(project);
+   auto& window = GetProjectFrame(project);
 
    /* i18n-hint: filename containing exported text from label tracks */
    wxString fName = _("labels.txt");
@@ -278,7 +278,7 @@ void OnExportLabels(const CommandContext &context)
    auto numLabelTracks = trackRange.size();
 
    if (numLabelTracks == 0) {
-      AudacityMessageBox( XO("There are no label tracks to export.") );
+      AudacityMessageBox(XO("There are no label tracks to export."));
       return;
    }
    else
@@ -317,12 +317,74 @@ void OnExportLabels(const CommandContext &context)
    f.Open();
    if (!f.IsOpened()) {
       AudacityMessageBox(
-         XO( "Couldn't write to file: %s" ).Format( fName ) );
+         XO("Couldn't write to file: %s").Format(fName));
       return;
    }
 
    for (auto lt : trackRange)
       lt->Export(f);
+
+   f.Write();
+   f.Close();
+}
+
+void OnExportLabelsEx(const CommandContext& context)
+{
+   auto& project = context.project;
+   auto& tracks = TrackList::Get(project);
+   auto& window = GetProjectFrame(project);
+
+   /* i18n-hint: filename containing exported text from label tracks */
+   wxString fName = _("labels.txt");
+   auto trackRange = tracks.Any<const LabelTrack>();
+   auto numLabelTracks = trackRange.size();
+
+   if (numLabelTracks == 0) {
+      AudacityMessageBox(XO("There are no label tracks to export."));
+      return;
+   }
+   else
+      fName = (*trackRange.rbegin())->GetName();
+
+   fName = SelectFile(FileNames::Operation::Export,
+      XO("Export Labels As:"),
+      wxEmptyString,
+      fName,
+      wxT("txt"),
+      { FileNames::TextFiles },
+      wxFD_SAVE | wxFD_OVERWRITE_PROMPT | wxRESIZE_BORDER,
+      &window);
+
+   if (fName.empty())
+      return;
+
+   // Move existing files out of the way.  Otherwise wxTextFile will
+   // append to (rather than replace) the current file.
+
+   if (wxFileExists(fName)) {
+#ifdef __WXGTK__
+      wxString safetyFileName = fName + wxT("~");
+#else
+      wxString safetyFileName = fName + wxT(".bak");
+#endif
+
+      if (wxFileExists(safetyFileName))
+         wxRemoveFile(safetyFileName);
+
+      wxRename(fName, safetyFileName);
+   }
+
+   wxTextFile f(fName);
+   f.Create();
+   f.Open();
+   if (!f.IsOpened()) {
+      AudacityMessageBox(
+         XO("Couldn't write to file: %s").Format(fName));
+      return;
+   }
+
+   for (auto lt : trackRange)
+      lt->ExportEx(f);
 
    f.Write();
    f.Close();
@@ -669,6 +731,11 @@ BaseItemSharedPtr FileMenu()
             Command( wxT("ExportLabels"), XXO("Export &Labels..."),
                FN(OnExportLabels),
                AudioIONotBusyFlag() | LabelTracksExistFlag() ),
+
+            Command(wxT("ExportLabelsEx"), XXO("Export Labels Ex..."),
+               FN(OnExportLabelsEx),
+               AudioIONotBusyFlag() | LabelTracksExistFlag()),
+
             // Enable Export audio commands only when there are audio tracks.
             Command( wxT("ExportMultiple"), XXO("Export &Multiple..."),
                FN(OnExportMultiple),
