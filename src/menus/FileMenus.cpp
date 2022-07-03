@@ -347,7 +347,7 @@ void OnExportLabelsEx(const CommandContext& context)
       fName = (*trackRange.rbegin())->GetName();
 
    fName = SelectFile(FileNames::Operation::Export,
-      XO("Export Labels As:"),
+      XO("Export Labels As (label track name will be used):"),
       wxEmptyString,
       fName,
       wxT("txt"),
@@ -361,33 +361,35 @@ void OnExportLabelsEx(const CommandContext& context)
    // Move existing files out of the way.  Otherwise wxTextFile will
    // append to (rather than replace) the current file.
 
-   if (wxFileExists(fName)) {
+   for (auto lt : trackRange) {
+      // this is probably inefficient
+      wxFileName wenor;
+      wenor.Assign(fName);
+      wenor.SetFullName(lt->GetName() + wxT(".txt"));
+      fName = wenor.GetFullPath();
+
+      if (wxFileExists(fName)) {
 #ifdef __WXGTK__
-      wxString safetyFileName = fName + wxT("~");
+         wxString safetyFileName = fName + wxT("~");
 #else
-      wxString safetyFileName = fName + wxT(".bak");
+         wxString safetyFileName = fName + wxT(".bak");
 #endif
-
-      if (wxFileExists(safetyFileName))
-         wxRemoveFile(safetyFileName);
-
-      wxRename(fName, safetyFileName);
+         if (wxFileExists(safetyFileName))
+            wxRemoveFile(safetyFileName);
+         wxRename(fName, safetyFileName);
+      }
+      wxTextFile f(fName);
+      f.Create();
+      f.Open();
+      if (!f.IsOpened()) {
+         AudacityMessageBox(
+            XO("Couldn't write to file: %s").Format(fName));
+         continue;
+      }
+      lt->Export(f);
+      f.Write();
+      f.Close();
    }
-
-   wxTextFile f(fName);
-   f.Create();
-   f.Open();
-   if (!f.IsOpened()) {
-      AudacityMessageBox(
-         XO("Couldn't write to file: %s").Format(fName));
-      return;
-   }
-
-   for (auto lt : trackRange)
-      lt->ExportEx(f);
-
-   f.Write();
-   f.Close();
 }
 
 void OnExportMultiple(const CommandContext &context)
@@ -732,7 +734,7 @@ BaseItemSharedPtr FileMenu()
                FN(OnExportLabels),
                AudioIONotBusyFlag() | LabelTracksExistFlag() ),
 
-            Command(wxT("ExportLabelsEx"), XXO("Export Labels Ex..."),
+            Command(wxT("ExportLabelsEx"), XXO("Export Multiple Labels..."),
                FN(OnExportLabelsEx),
                AudioIONotBusyFlag() | LabelTracksExistFlag()),
 

@@ -48,7 +48,6 @@ public:
    static LabelStruct Import(wxTextFile &file, int &index);
 
    void Export(wxTextFile &file) const;
-   void ExportEx(wxTextFile &file, const LabelTrack* track) const;
 
    /// Relationships between selection region and labels
    enum TimeRelations
@@ -143,7 +142,6 @@ public:
 
    void Import(wxTextFile & f);
    void Export(wxTextFile & f) const;
-   void ExportEx(wxTextFile& f) const;
 
    int GetNumLabels() const;
    const LabelStruct *GetLabel(int index) const;

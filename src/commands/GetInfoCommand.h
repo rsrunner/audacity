@@ -47,6 +47,7 @@ public:
 public:
    int mInfoType;
    int mFormat;
+   bool mbStrFloat;
 
 private:
    bool SendCommands(const CommandContext & context, int flags);

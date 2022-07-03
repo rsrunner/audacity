@@ -499,33 +499,6 @@ void LabelStruct::Export(wxTextFile& file) const
    // Additional lines in future formats should also start with '\'.
 }
 
-void LabelStruct::ExportEx(wxTextFile& file, const LabelTrack* track) const
-{
-   file.AddLine(wxString::Format(wxT("%s\t%s\t%s|%s"),
-      Internat::ToString(getT0(), FLT_DIG),
-      Internat::ToString(getT1(), FLT_DIG),
-      title,
-      track->GetName()
-   ));
-
-   // Do we need more lines?
-   auto f0 = selectedRegion.f0();
-   auto f1 = selectedRegion.f1();
-   if ((f0 == SelectedRegion::UndefinedFrequency &&
-      f1 == SelectedRegion::UndefinedFrequency) ||
-      ImportExportPrefs::LabelStyleSetting.ReadEnum())
-      return;
-
-   // Write a \ character at the start of a second line,
-   // so that earlier versions of Audacity ignore it.
-   file.AddLine(wxString::Format(wxT("\\\t%s\t%s"),
-      Internat::ToString(f0, FLT_DIG),
-      Internat::ToString(f1, FLT_DIG)
-   ));
-
-   // Additional lines in future formats should also start with '\'.
-}
-
 auto LabelStruct::RegionRelation(
       double reg_t0, double reg_t1, const LabelTrack * WXUNUSED(parent)) const
 -> TimeRelations
@@ -598,14 +571,6 @@ void LabelTrack::Export(wxTextFile& f) const
    // PRL: to do: export other selection fields
    for (auto& labelStruct : mLabels)
       labelStruct.Export(f);
-}
-
-/// Export labels including label start, end-times and track name.
-void LabelTrack::ExportEx(wxTextFile& f) const
-{
-   // PRL: to do: export other selection fields
-   for (auto& labelStruct : mLabels)
-      labelStruct.ExportEx(f, this);
 }
 
 /// Import labels, handling files with or without end-times.

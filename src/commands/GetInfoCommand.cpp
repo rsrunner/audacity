@@ -106,6 +106,7 @@ template<bool Const>
 bool GetInfoCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
    S.DefineEnum( mInfoType, wxT("Type"), 0, kTypes, nTypes );
    S.DefineEnum( mFormat, wxT("Format"), 0, kFormats, nFormats );
+   S.Define(mbStrFloat, wxT("StringFloats"), false);
    return true;
 }
 
@@ -125,6 +126,11 @@ void GetInfoCommand::PopulateOrExchange(ShuttleGui & S)
          mInfoType, Msgids( kTypes, nTypes ));
       S.TieChoice( XXO("Format:"),
          mFormat, Msgids( kFormats, nFormats ));
+   }
+   S.EndMultiColumn();
+   S.StartMultiColumn(1, wxALIGN_CENTER);
+   {
+      S.TieCheckBox(XXO("String Floats"), mbStrFloat);
    }
    S.EndMultiColumn();
 }
@@ -483,10 +489,18 @@ bool GetInfoCommand::SendTracks(const CommandContext & context)
          float vzmin, vzmax;
          t->GetDisplayBounds(&vzmin, &vzmax);
          context.AddItem( "wave", "kind" );
-         context.AddItem( t->GetStartTime(), "start" );
-         context.AddItem( t->GetEndTime(), "end" );
-         context.AddItem( t->GetPan() , "pan");
-         context.AddItem( t->GetGain() , "gain");
+         if (mbStrFloat) {
+            context.AddItem(Internat::ToString(t->GetStartTime(), FLT_DIG), "start");
+            context.AddItem(Internat::ToString(t->GetEndTime(), FLT_DIG), "end");
+            context.AddItem(Internat::ToString(t->GetPan(), FLT_DIG), "pan");
+            context.AddItem(Internat::ToString(t->GetGain(), FLT_DIG), "gain");
+         }
+         else {
+            context.AddItem(t->GetStartTime(), "start");
+            context.AddItem(t->GetEndTime(), "end");
+            context.AddItem(t->GetPan(), "pan");
+            context.AddItem(t->GetGain(), "gain");
+         }
          context.AddItem( TrackList::Channels(t).size(), "channels");
          context.AddBool( t->GetSolo(), "solo" );
          context.AddBool( t->GetMute(), "mute");
@@ -522,8 +536,14 @@ bool GetInfoCommand::SendClips(const CommandContext &context)
          for (WaveClip * pClip : ptrs) {
             context.StartStruct();
             context.AddItem((double)i, "track");
-            context.AddItem(pClip->GetPlayStartTime(), "start");
-            context.AddItem(pClip->GetPlayEndTime(), "end");
+            if (mbStrFloat) {
+               context.AddItem(Internat::ToString(pClip->GetPlayStartTime(), FLT_DIG), "start");
+               context.AddItem(Internat::ToString(pClip->GetPlayEndTime(), FLT_DIG), "end");
+            }
+            else {
+               context.AddItem(pClip->GetPlayStartTime(), "start");
+               context.AddItem(pClip->GetPlayEndTime(), "end");
+            }
             context.AddItem(pClip->GetColourIndex(), "color");
             context.EndStruct();
          }
@@ -584,14 +604,20 @@ bool GetInfoCommand::SendLabels(const CommandContext &context)
    int i=0;
    context.StartArray();
    for (auto t : tracks.Leaders()) {
-      t->TypeSwitch( [&](LabelTrack *labelTrack) {
+      t->TypeSwitch([&](LabelTrack* labelTrack) {
 #ifdef VERBOSE_LABELS_FORMATTING
-         for (int nn = 0; nn< (int)labelTrack->mLabels.size(); nn++) {
-            const auto &label = labelTrack->mLabels[nn];
+         for (int nn = 0; nn < (int)labelTrack->mLabels.size(); nn++) {
+            const auto& label = labelTrack->mLabels[nn];
             context.StartStruct();
-            context.AddItem( (double)i, "track" );
-            context.AddItem( label.getT0(), "start" );
-            context.AddItem( label.getT1(), "end" );
+            context.AddItem((double)i, "track");
+            if (bStrFloat) {
+               context.AddItem(Internat::ToString(label.getT0(), FLT_DIG), "start"); // start
+               context.AddItem(Internat::ToString(label.getT1(), FLT_DIG), "end"); // end
+            }
+            else {
+               context.AddItem(label.getT0(), "start");
+               context.AddItem(label.getT1(), "end");
+            }
             context.AddItem( label.title, "text" );
             context.EndStruct();
          }
@@ -601,8 +627,14 @@ bool GetInfoCommand::SendLabels(const CommandContext &context)
          context.StartArray();
          for ( const auto &label : labelTrack->GetLabels() ) {
             context.StartArray();
-            context.AddItem( label.getT0() ); // start
-            context.AddItem( label.getT1() ); // end
+            if (mbStrFloat) {
+               context.AddItem(Internat::ToString(label.getT0(), FLT_DIG)); // start
+               context.AddItem(Internat::ToString(label.getT1(), FLT_DIG)); // end
+            }
+            else{
+               context.AddItem( label.getT0() ); // start
+               context.AddItem( label.getT1() ); // end
+            }
             context.AddItem( label.title ); //text.
             context.EndArray();
          }
