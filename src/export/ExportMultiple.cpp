@@ -132,6 +132,7 @@ ExportMultipleDialog::ExportMultipleDialog(AudacityProject *project)
    wxID_ANY, XO("Export Multiple") )
 , mExporter{ *project }
 , mSelectionState{ SelectionState::Get( *project ) }
+, mLabelTracks{ TrackList::Get(*project).Any<const LabelTrack>() }
 {
    SetName();
 
@@ -175,8 +176,13 @@ void ExportMultipleDialog::CountTracksAndLabels()
       (anySolo ? &WaveTrack::GetNotSolo : &WaveTrack::GetMute)).size();
 
    // only the first label track
-   mLabels = *mTracks->Any< const LabelTrack >().begin();
-   mNumLabels = mLabels ? mLabels->GetNumLabels() : 0;
+   // Why only the first label track?
+   mNumLabels = 0;
+   for (auto labeltrack : mLabelTracks) {
+      mNumLabels += labeltrack->GetNumLabels();
+   }
+   // mLabels = *mTracks->Any< const LabelTrack >().begin();
+   // mNumLabels = mLabels ? mLabels->GetNumLabels() : 0;
 }
 
 int ExportMultipleDialog::ShowModal()
@@ -753,6 +759,7 @@ ProgressResult ExportMultipleDialog::ExportMultipleByLabel(bool byName,
    const wxString &prefix, bool addNumber)
 {
    wxASSERT(mProject);
+
    int numFiles = mNumLabels;
    int l = 0;        // counter for files done
    std::vector<ExportKit> exportSettings; // dynamic array for settings.
@@ -778,94 +785,67 @@ ProgressResult ExportMultipleDialog::ExportMultipleByLabel(bool byName,
    wxString title;   // un-messed-with title of file for tagging with
 
    const LabelStruct *info = NULL;
-   /* Examine all labels a first time, sort out all data but don't do any
-    * exporting yet (so this run is quick but interactive) */
-   while( l < mNumLabels ) {
-
-      // Get file name and starting time
-      if( l < 0 ) {
-         // create wxFileName for output file
-         name = (mFirstFileName->GetValue());
-         setting.t0 = 0.0;
-      } else {
-         info = mLabels->GetLabel(l);
-         name = (info->title);
-         setting.t0 = info->selectedRegion.t0();
-      }
-
-      // Figure out the ending time
-      if( info && !info->selectedRegion.isPoint() ) {
-         setting.t1 = info->selectedRegion.t1();
-      } else if( l < mNumLabels-1 ) {
-         // Use start of next label as end
-         const LabelStruct *info1 = mLabels->GetLabel(l+1);
-         setting.t1 = info1->selectedRegion.t0();
-      } else {
-         setting.t1 = mTracks->GetEndTime();
-      }
-
-      if( name.empty() )
-         name = _("untitled");
-
-      // store title of label to use in tags
-      title = name;
-
-      // Numbering files...
-      if( !byName ) {
-         name.Printf(wxT("%s-%02d"), prefix, l+1);
-      } else if( addNumber ) {
-         // Following discussion with GA, always have 2 digits
-         // for easy file-name sorting (on Windows)
-         name.Prepend(wxString::Format(wxT("%02d-"), l+1));
-      }
-
-      // store sanitised and user checked name in object
-      setting.destfile.SetName(MakeFileName(name));
-      if( setting.destfile.GetName().empty() )
-      {  // user cancelled dialogue, or deleted everything in field.
-         // or maybe the label was empty??
-         // So we ignore this one and keep going.
-      } 
-      else
-      {
-         // FIXME: TRAP_ERR User could have given an illegal filename prefix.
-         // in that case we should tell them, not fail silently.
-         wxASSERT(setting.destfile.IsOk());     // burp if file name is broke
-
-         // Make sure the (final) file name is unique within the set of exports
-         FileNames::MakeNameUnique(otherNames, setting.destfile);
-
-         /* do the metadata for this file */
-         // copy project metadata to start with
-         setting.filetags = Tags::Get( *mProject );
-         setting.filetags.LoadDefaults();
-         if (exportSettings.size()) {
-            setting.filetags = exportSettings.back().filetags;
+   
+   // "Does this crap even work?" - Ordinary Sausage
+   int i = 0;
+   for (auto labeltrack : mLabelTracks) {
+      int j = 0;
+      for (auto label : labeltrack->GetLabels()) {
+         name = label.title;
+         setting.t0 = label.getT0();
+         setting.t1 = label.getT1();
+         if (name.empty()) {
+            name = _("untitled");
          }
-         // over-ride with values
-         setting.filetags.SetTag(TAG_TITLE, title);
-         setting.filetags.SetTag(TAG_TRACK, l+1);
-         // let the user have a crack at editing it, exit if cancelled
-         auto &settings = ProjectSettings::Get( *mProject );
-         bool bShowTagsDialog = settings.GetShowId3Dialog();
-
-         bShowTagsDialog = bShowTagsDialog && mPlugins[mPluginIndex]->GetCanMetaData(mSubFormatIndex);
-
-         if( bShowTagsDialog ){
-            bool bCancelled = !TagsEditorDialog::ShowEditDialog(setting.filetags,
-               ProjectWindow::Find( mProject ),
-               XO("Edit Metadata Tags"), bShowTagsDialog);
-            gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &bShowTagsDialog, true);
-            settings.SetShowId3Dialog( bShowTagsDialog );
-            if( bCancelled )
-               return ProgressResult::Cancelled;
+         title = name;
+         // make it nice
+         name.Printf(wxT("%s_%04d"), labeltrack->GetName(), j + 1);
+         setting.destfile.SetName(MakeFileName(name));
+         if (setting.destfile.GetExt().empty()) {
+            setting.destfile.SetExt(wxT("wav"));
          }
+         if (setting.destfile.GetName().empty()) {
+            // something i dont know
+         }
+         else
+         {
+            // FIXME: TRAP_ERR User could have given an illegal filename prefix.
+            // in that case we should tell them, not fail silently.
+            wxASSERT(setting.destfile.IsOk());     // burp if file name is broke
+
+            // Make sure the (final) file name is unique within the set of exports
+            FileNames::MakeNameUnique(otherNames, setting.destfile);
+
+            /* do the metadata for this file */
+            // copy project metadata to start with
+            setting.filetags = Tags::Get(*mProject);
+            setting.filetags.LoadDefaults();
+            if (exportSettings.size()) {
+               setting.filetags = exportSettings.back().filetags;
+            }
+            // over-ride with values
+            setting.filetags.SetTag(TAG_TITLE, title);
+            setting.filetags.SetTag(TAG_TRACK, i + 1);
+            // let the user have a crack at editing it, exit if cancelled
+            auto& settings = ProjectSettings::Get(*mProject);
+            bool bShowTagsDialog = settings.GetShowId3Dialog();
+
+            bShowTagsDialog = bShowTagsDialog && mPlugins[mPluginIndex]->GetCanMetaData(mSubFormatIndex);
+
+            if (bShowTagsDialog) {
+               bool bCancelled = !TagsEditorDialog::ShowEditDialog(setting.filetags,
+                  ProjectWindow::Find(mProject),
+                  XO("Edit Metadata Tags"), bShowTagsDialog);
+               gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &bShowTagsDialog, true);
+               settings.SetShowId3Dialog(bShowTagsDialog);
+               if (bCancelled)
+                  return ProgressResult::Cancelled;
+            }
+         }
+         exportSettings.push_back(setting);
+         j++;
       }
-
-      /* add the settings to the array of settings to be used for export */
-      exportSettings.push_back(setting);
-
-      l++;  // next label, count up one
+      i++;
    }
 
    auto ok = ProgressResult::Success;   // did it work?

@@ -111,6 +111,7 @@ private:
    TrackList *mTracks;           /**< The list of tracks in the project that is
                                    being exported */
    const LabelTrack *mLabels;
+   TrackIterRange<const LabelTrack> mLabelTracks;
    int mNumLabels;
    int mNumWaveTracks;
 
