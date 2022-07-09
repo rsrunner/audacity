@@ -351,7 +351,7 @@ std::shared_ptr<RealtimeEffectState>
 AudioIO::AddState(AudacityProject &project, Track *pTrack, const PluginID & id)
 {
    RealtimeEffects::InitializationScope *pInit = nullptr;
-   if (mpTransportState)
+   if (mpTransportState && mpTransportState->mpRealtimeInitialization)
       if (auto pProject = GetOwningProject(); pProject.get() == &project)
          pInit = &*mpTransportState->mpRealtimeInitialization;
    return RealtimeEffectManager::Get(project).AddState(pInit, pTrack, id);
@@ -362,7 +362,7 @@ AudioIO::ReplaceState(AudacityProject &project,
    Track *pTrack, size_t index, const PluginID & id)
 {
    RealtimeEffects::InitializationScope *pInit = nullptr;
-   if (mpTransportState)
+   if (mpTransportState && mpTransportState->mpRealtimeInitialization)
       if (auto pProject = GetOwningProject(); pProject.get() == &project)
          pInit = &*mpTransportState->mpRealtimeInitialization;
    return RealtimeEffectManager::Get(project)
@@ -373,7 +373,7 @@ void AudioIO::RemoveState(AudacityProject &project,
    Track *pTrack, const std::shared_ptr<RealtimeEffectState> &pState)
 {
    RealtimeEffects::InitializationScope *pInit = nullptr;
-   if (mpTransportState)
+   if (mpTransportState && mpTransportState->mpRealtimeInitialization)
       if (auto pProject = GetOwningProject(); pProject.get() == &project)
          pInit = &*mpTransportState->mpRealtimeInitialization;
    RealtimeEffectManager::Get(project).RemoveState(pInit, pTrack, pState);
@@ -1166,19 +1166,20 @@ bool AudioIO::AllocateBuffers(
                mixTracks.push_back(mPlaybackTracks[i]);
 
                double startTime, endTime;
-               if (make_iterator_range(tracks.prerollTracks)
-                      .contains(mPlaybackTracks[i])) {
-                  // Stop playing this track after pre-roll
+               if (!tracks.prerollTracks.empty())
                   startTime = mPlaybackSchedule.mT0;
+               else
+                  startTime = t0;
+
+               if (make_iterator_range(tracks.prerollTracks)
+                  .contains(mPlaybackTracks[i]))
+                  // Stop playing this track after pre-roll
                   endTime = t0;
-               }
-               else {
+               else
                   // Pass t1 -- not mT1 as may have been adjusted for latency
                   // -- so that overdub recording stops playing back samples
                   // at the right time, though transport may continue to record
-                  startTime = t0;
                   endTime = t1;
-               }
 
                mPlaybackMixers[i] = std::make_unique<Mixer>
                   (mixTracks,
