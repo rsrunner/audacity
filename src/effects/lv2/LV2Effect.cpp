@@ -156,8 +156,8 @@ bool LV2Effect::InitializePlugin()
    auto instanceFeatures = LV2InstanceFeaturesList{ mFeatures };
    if (!instanceFeatures.mOk)
       return false;
-   if (!LV2UIFeaturesList{
-      instanceFeatures, nullptr, lilv_plugin_get_uri(&mPlug)
+   if (!LV2UIFeaturesList{ LV2WrapperFeaturesList{instanceFeatures},
+      nullptr, lilv_plugin_get_uri(&mPlug)
    }.mOk)
       return false;
 
@@ -191,20 +191,40 @@ EffectSettings LV2Effect::MakeSettings() const
 }
 
 bool LV2Effect::CopySettingsContents(
-   const EffectSettings &src, EffectSettings &dst) const
+   const EffectSettings &src, EffectSettings &dst,
+   SettingsCopyDirection copyDirection) const
 {
    auto &srcControls = GetSettings(src).values;
    auto &dstControls = GetSettings(dst).values;
 
+   const auto &controlPorts = mPorts.mControlPorts;
+   const auto portsCount = controlPorts.size();
    // Do not use the copy constructor of std::vector.  Do an in-place rewrite
    // of the destination vector, which will not allocate memory if dstControls
    // began with sufficient capacity.
-   // And that will be try if dstControls originated with MakeSettings() or a
+   // And that will be true if dstControls originated with MakeSettings() or a
    // copy of it, because the set of control ports does not vary after
    // initialization of the plug-in.
-   assert(srcControls.size() == dstControls.size());
-   dstControls.resize(0);
-   copy(srcControls.begin(), srcControls.end(), back_inserter(dstControls));
+   assert(srcControls.size() == portsCount);
+   assert(dstControls.size() == portsCount);
+   // But let's be sure
+   const auto portValuesCount =
+      std::min(srcControls.size(), dstControls.size());
+
+   if (portValuesCount != portsCount)
+      return false;
+
+   const auto copyOutputs = copyDirection == SettingsCopyDirection::WorkerToMain;
+   
+   size_t portIndex {};
+
+   for (auto& port : controlPorts)
+   {
+      if (port->mIsInput || copyOutputs)
+         dstControls[portIndex] = srcControls[portIndex];
+
+      ++portIndex;
+   }
 
    // Ignore mpState
 
@@ -213,7 +233,10 @@ bool LV2Effect::CopySettingsContents(
 
 std::shared_ptr<EffectInstance> LV2Effect::MakeInstance() const
 {
-   return std::make_shared<LV2Instance>(*this, mFeatures, mPorts);
+   auto result = std::make_shared<LV2Instance>(*this, mFeatures, mPorts);
+   if (result->IsOk())
+      return result;
+   return nullptr;
 }
 
 unsigned LV2Effect::GetAudioInCount() const
@@ -314,8 +337,8 @@ std::unique_ptr<EffectUIValidator> LV2Effect::PopulateUI(ShuttleGui &S,
    mParent = parent;
 
    auto &myInstance = dynamic_cast<LV2Instance &>(instance);
-   myInstance.MakeMaster(settings, mProjectRate, true);
-   const auto pWrapper = myInstance.GetMaster();
+   auto pWrapper =
+      myInstance.MakeWrapper(settings, mProjectRate, true);
    if (!pWrapper) {
       AudacityMessageBox( XO("Couldn't instantiate effect") );
       return nullptr;
@@ -335,7 +358,7 @@ std::unique_ptr<EffectUIValidator> LV2Effect::PopulateUI(ShuttleGui &S,
       access, mProjectRate, mFeatures, mPorts, parent, useGUI);
 
    if (result->mUseGUI)
-      result->mUseGUI = result->BuildFancy(*pWrapper, settings);
+      result->mUseGUI = result->BuildFancy(move(pWrapper), settings);
    if (!result->mUseGUI && !result->BuildPlain(access))
       return nullptr;
    result->UpdateUI();
