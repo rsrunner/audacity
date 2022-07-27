@@ -1355,7 +1355,7 @@ ChoiceSetting &GUITheme()
       // conserving the ordering that was used in 3.1.0; otherwise
       // sorting other registered themes alphabetically by identifier
       static const Identifier names[] = {
-         "classic", "light", "dark", "high-contrast"
+         "classic", "light", "dark", "high-contrast", "arc-dark"
       };
       static auto index = [](const EnumValueSymbol &symbol){
          auto begin = std::begin(names), end = std::end(names);

@@ -152,6 +152,7 @@ foreach( pair
    "dark;DarkThemeAsCeeCode"
    "high-contrast;HighContrastThemeAsCeeCode"
    "light;LightThemeAsCeeCode"
+   "arc-dark;ArcDarkThemeAsCeeCode"
 )
    list( POP_FRONT pair theme filename )
    set( THEME_FILES )
@@ -171,6 +172,8 @@ endforeach()
 
 # Now define a more conventional library, using the output of the image compiler
 set( SOURCES
+   ArcDarkThemeAsCeeCode.cpp
+   ArcDarkThemeAsCeeCode.h
    ClassicThemeAsCeeCode.cpp
    ClassicThemeAsCeeCode.h
    DarkThemeAsCeeCode.cpp
