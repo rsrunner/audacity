@@ -10,9 +10,9 @@
                        MuteRms: #9b9b9d;
                         Shadow: #4a4a4a;
                AboutBackground: #adadad;
-                TrackPanelText: #fedfb2;
+                TrackPanelText: #d3dae3;
                 LabelTrackText: #000000;
-                     MeterPeak: #6666ff;
+                     MeterPeak: #5294e2;
               MeterDisabledPen: #c0c0c0;
             MeterDisabledBrush: #a0a0a0;
                  MeterInputPen: #cc4646;
@@ -33,7 +33,7 @@
                  ResponseLines: #00ff00;
                         HzPlot: #5294e2;
                 WavelengthPlot: #5294e2;
-                EnvelopeColour: #fedfb2;
+                EnvelopeColour: #5294e2;
               MuteButtonActive: #a0aad2;
               MuteButtonVetoed: #b4b4b9;
                      CursorPen: #d3dae3;
@@ -85,7 +85,7 @@
                     ScrubRuler: #6a6a6a;
                      TimeHours: #2f343f;
                       FocusBox: #ffff14;
-                 TrackNameText: #ffff14;
+                 TrackNameText: #d3dae3;
                      MidiZebra: #808080;
                      MidiLines: #3c3c98;
            TextNegativeNumbers: #7fbeff;
