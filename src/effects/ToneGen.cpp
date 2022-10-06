@@ -144,7 +144,7 @@ unsigned EffectToneGen::GetAudioOutCount() const
 }
 
 bool EffectToneGen::ProcessInitialize(
-   EffectSettings &, double sampleRate, sampleCount, ChannelNames chanMap)
+   EffectSettings &, double sampleRate, ChannelNames chanMap)
 {
    mSampleRate = sampleRate;
    mPositionInCycles = 0.0;
@@ -393,12 +393,22 @@ std::unique_ptr<EffectUIValidator> EffectToneGen::PopulateOrExchange(
 
 bool EffectToneGen::TransferDataToWindow(const EffectSettings &settings)
 {
+   if (!mUIParent->TransferDataToWindow())
+   {
+      return false;
+   }
+
    mToneDurationT->SetValue(settings.extra.GetDuration());
    return true;
 }
 
 bool EffectToneGen::TransferDataFromWindow(EffectSettings &settings)
 {
+   if (!mUIParent->Validate() || !mUIParent->TransferDataFromWindow())
+   {
+      return false;
+   }
+
    if (!mChirp)
    {
       mFrequency1 = mFrequency0;

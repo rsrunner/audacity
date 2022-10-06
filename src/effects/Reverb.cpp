@@ -192,12 +192,12 @@ struct EffectReverb::Instance
    {}
 
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
 
    size_t ProcessBlock(EffectSettings& settings,
       const float* const* inBlock, float* const* outBlock, size_t blockLen)  override;
 
-   bool ProcessFinalize(void) override; // not every effect needs this
+   bool ProcessFinalize(void) noexcept override;
 
    // Realtime section
 
@@ -211,13 +211,13 @@ struct EffectReverb::Instance
    bool RealtimeAddProcessor(EffectSettings& settings,
       unsigned numChannels, float sampleRate) override
    {
-      EffectReverbState slave;
+      EffectReverb::Instance slave(mProcessor);
 
       // The notion of ChannelNames is unavailable here,
       // so we'll have to force the stereo init, if this is the case
       //
       InstanceInit(settings, sampleRate,
-         slave, /*ChannelNames=*/nullptr, /*forceStereo=*/(numChannels == 2));
+         slave.mState, /*ChannelNames=*/nullptr, /*forceStereo=*/(numChannels == 2));
 
       mSlaves.push_back( std::move(slave) );
       return true;
@@ -234,7 +234,17 @@ struct EffectReverb::Instance
    {
       if (group >= mSlaves.size())
          return 0;
-      return InstanceProcess(settings, mSlaves[group], inbuf, outbuf, numSamples);
+      return InstanceProcess(settings, mSlaves[group].mState, inbuf, outbuf, numSamples);
+   }
+
+   unsigned GetAudioOutCount() const override
+   {
+      return mChannels;
+   }
+
+   unsigned GetAudioInCount() const override
+   {
+      return mChannels;
    }
 
    bool InstanceInit(EffectSettings& settings, double sampleRate,
@@ -243,8 +253,10 @@ struct EffectReverb::Instance
    size_t InstanceProcess(EffectSettings& settings, EffectReverbState& data,
       const float* const* inBlock, float* const* outBlock, size_t blockLen);
 
-   EffectReverbState mMaster;
-   std::vector<EffectReverbState> mSlaves;
+   EffectReverbState mState;
+   std::vector<EffectReverb::Instance> mSlaves;
+
+   unsigned mChannels{ 2 };
 };
 
 
@@ -289,36 +301,30 @@ EffectType EffectReverb::GetType() const
    return EffectTypeProcess;
 }
 
-unsigned EffectReverb::GetAudioInCount() const
-{
-   return 2;
-}
-
-unsigned EffectReverb::GetAudioOutCount() const
-{
-   return 2;
-}
-
 auto EffectReverb::RealtimeSupport() const -> RealtimeSince
 {
-   return RealtimeSince::Since_3_2;
+   return RealtimeSince::Never;
 }
 
 static size_t BLOCK = 16384;
 
 bool EffectReverb::Instance::ProcessInitialize(EffectSettings& settings,
-   double sampleRate, sampleCount, ChannelNames chanMap)
+   double sampleRate, ChannelNames chanMap)
 {
+   // For descructive processing, fix the number of channels, maybe as 1 not 2
+   auto& rs = GetSettings(settings);
+   mChannels = rs.mStereoWidth ? 2 : 1;
+
    return InstanceInit(settings,
-      sampleRate, mMaster, chanMap, /* forceStereo = */ false);
+      sampleRate, mState, chanMap, /* forceStereo = */ false);
 }
 
 
 bool EffectReverb::Instance::InstanceInit(EffectSettings& settings,
    double sampleRate, EffectReverbState& state,
    ChannelNames chanMap, bool forceStereo)
-{   
-   auto& rs = GetSettings(settings);   
+{
+   auto& rs = GetSettings(settings);
 
    bool isStereo = false;
    state.mNumChans = 1;
@@ -350,7 +356,7 @@ bool EffectReverb::Instance::InstanceInit(EffectSettings& settings,
    return true;
 }
 
-bool EffectReverb::Instance::ProcessFinalize()
+bool EffectReverb::Instance::ProcessFinalize() noexcept
 {
    return true;
 }
@@ -358,7 +364,7 @@ bool EffectReverb::Instance::ProcessFinalize()
 size_t EffectReverb::Instance::ProcessBlock(EffectSettings& settings,
    const float* const* inBlock, float* const* outBlock, size_t blockLen)
 {
-   return InstanceProcess(settings, mMaster, inBlock, outBlock, blockLen);
+   return InstanceProcess(settings, mState, inBlock, outBlock, blockLen);
 }
 
 size_t EffectReverb::Instance::InstanceProcess(EffectSettings& settings, EffectReverbState& state,

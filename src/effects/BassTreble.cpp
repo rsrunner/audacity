@@ -124,7 +124,7 @@ unsigned EffectBassTreble::GetAudioOutCount() const
 }
 
 bool EffectBassTreble::ProcessInitialize(
-   EffectSettings &, double sampleRate, sampleCount, ChannelNames)
+   EffectSettings &, double sampleRate, ChannelNames)
 {
    InstanceInit(mMaster, sampleRate);
    return true;
@@ -253,12 +253,29 @@ std::unique_ptr<EffectUIValidator> EffectBassTreble::PopulateOrExchange(
 
 bool EffectBassTreble::TransferDataToWindow(const EffectSettings &)
 {
+   if (!mUIParent->TransferDataToWindow())
+   {
+      return false;
+   }
+
    mBassS->SetValue((int) (mBass * Bass.scale));
    mTrebleS->SetValue((int) mTreble *Treble.scale);
    mGainS->SetValue((int) mGain * Gain.scale);
    mLinkCheckBox->SetValue(mLink);
+
    return true;
 }
+
+bool EffectBassTreble::TransferDataFromWindow(EffectSettings &)
+{
+   if (!mUIParent->Validate() || !mUIParent->TransferDataFromWindow())
+   {
+      return false;
+   }
+
+   return true;
+}
+
 
 // EffectBassTreble implementation
 

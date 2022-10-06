@@ -12,6 +12,7 @@ Paul Licameli split from Mix.cpp
 
 #include "BasicUI.h"
 #include "Mix.h"
+#include "effects/RealtimeEffectList.h"
 #include "WaveTrack.h"
 
 using WaveTrackConstArray = std::vector < std::shared_ptr < const WaveTrack > >;
@@ -64,10 +65,11 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    double mixEndTime = 0.0;   /* end time of last track to end */
    double tstart, tend;    // start and end times for one track.
 
-   SampleTrackConstArray waveArray;
+   Mixer::Inputs waveArray;
 
    for(auto wt : trackRange) {
-      waveArray.push_back( wt->SharedPointer< const SampleTrack >() );
+      waveArray.emplace_back(
+         wt->SharedPointer<const SampleTrack>(), GetEffectStages(*wt));
       tstart = wt->GetStartTime();
       tend = wt->GetEndTime();
       if (tend > mixEndTime)
@@ -95,8 +97,11 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
 
    // EmptyCopy carries over any interesting channel group information
    // But make sure the left is unlinked before we re-link
+   // And reset pan and gain
    auto mixLeft =
       first->EmptyCopy(trackFactory->GetSampleBlockFactory(), false);
+   mixLeft->SetPan(0);
+   mixLeft->SetGain(1);
    mixLeft->SetRate(rate);
    mixLeft->ConvertToSampleFormat(format);
    if (oneinput)
@@ -132,7 +137,7 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
       endTime = mixEndTime;
    }
 
-   Mixer mixer(waveArray,
+   Mixer mixer(move(waveArray),
       // Throw to abort mix-and-render if read fails:
       true, warpOptions,
       startTime, endTime, mono ? 1 : 2, maxBlockLen, false,
@@ -145,7 +150,7 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
          XO("Mixing and rendering tracks"));
 
       while (updateResult == ProgressResult::Success) {
-         auto blockLen = mixer.Process(maxBlockLen);
+         auto blockLen = mixer.Process();
 
          if (blockLen == 0)
             break;
@@ -187,5 +192,37 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    wxPrintf("Elapsed time: %f sec\n", elapsedTime);
    wxPrintf("Max number of tracks to mix in real time: %f\n", maxTracks);
 #endif
+
+      for (auto pTrack : { uLeft.get(), uRight.get() })
+         if (pTrack)
+            RealtimeEffectList::Get(*pTrack).Clear();
    }
+}
+
+#include "effects/RealtimeEffectList.h"
+#include "effects/RealtimeEffectState.h"
+
+std::vector<MixerOptions::StageSpecification>
+GetEffectStages(const WaveTrack &track)
+{
+   auto &effects = RealtimeEffectList::Get(track);
+   if (!effects.IsActive())
+      return {};
+   std::vector<MixerOptions::StageSpecification> result;
+   for (size_t i = 0, count = effects.GetStatesCount(); i < count; ++i) {
+      const auto pState = effects.GetStateAt(i);
+      if (!pState->IsEnabled())
+         continue;
+      const auto pEffect = pState->GetEffect();
+      if (!pEffect)
+         continue;
+      const auto &settings = pState->GetSettings();
+      if (!settings.has_value())
+         continue;
+      auto &stage = result.emplace_back(MixerOptions::StageSpecification{
+         [pEffect]{ return std::dynamic_pointer_cast<EffectInstanceEx>(
+            pEffect->MakeInstance()); },
+         settings });
+   }
+   return result;
 }

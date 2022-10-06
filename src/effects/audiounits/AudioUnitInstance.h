@@ -30,15 +30,18 @@ public:
 
 private:
    size_t InitialBlockSize() const;
-   sampleCount GetLatency(const EffectSettings &settings, double sampleRate)
+   SampleCount GetLatency(const EffectSettings &settings, double sampleRate)
       const override;
 
    size_t GetBlockSize() const override;
    size_t SetBlockSize(size_t maxBlockSize) override;
 
+   unsigned GetAudioInCount() const override;
+   unsigned GetAudioOutCount() const override;
+
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
-   bool ProcessFinalize() override;
+      ChannelNames chanMap) override;
+   bool ProcessFinalize() noexcept override;
    size_t ProcessBlock(EffectSettings &settings,
       const float *const *inBlock, float *const *outBlock, size_t blockLen)
       override;
@@ -55,8 +58,6 @@ private:
       const float *const *inbuf, float *const *outbuf, size_t numSamples)
       override;
    bool RealtimeProcessEnd(EffectSettings &settings) noexcept override;
-
-   bool SetRateAndChannels(double sampleRate);
 
    static OSStatus RenderCallback(void *inRefCon,
       AudioUnitRenderActionFlags *inActionFlags,
@@ -81,8 +82,6 @@ private:
 
    const wxString &mIdentifier; // for debug messages only
    const size_t mBlockSize;
-   const unsigned mAudioIns;
-   const unsigned mAudioOuts;
    const bool mUseLatency;
 };
 #endif

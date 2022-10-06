@@ -12,22 +12,29 @@
 #define __AUDACITY_REALTIMEEFFECTSTATE_H__
 
 #include <atomic>
+#include <cstddef>
+#include <optional>
 #include <unordered_map>
 #include <vector>
-#include <cstddef>
+#include "ClientData.h"
 #include "EffectInterface.h"
 #include "GlobalVariable.h"
 #include "MemoryX.h"
+#include "Observer.h"
 #include "PluginProvider.h" // for PluginID
 #include "XMLTagHandler.h"
 
 class EffectSettingsAccess;
 class Track;
 
+enum class RealtimeEffectStateChange { EffectOff, EffectOn };
+
 class RealtimeEffectState
    : public XMLTagHandler
    , public std::enable_shared_from_this<RealtimeEffectState>
    , public SharedNonInterfering<RealtimeEffectState>
+   , public ClientData::Site<RealtimeEffectState>
+   , public Observer::Publisher<RealtimeEffectStateChange>
 {
 public:
    struct AUDACITY_DLL_API EffectFactory : GlobalHook<EffectFactory,
@@ -35,7 +42,7 @@ public:
    >{};
 
    explicit RealtimeEffectState(const PluginID & id);
-   RealtimeEffectState(const RealtimeEffectState &other);
+   RealtimeEffectState(const RealtimeEffectState &other) = delete;
    RealtimeEffectState &operator =(const RealtimeEffectState &other) = delete;
    ~RealtimeEffectState();
 
@@ -45,14 +52,17 @@ public:
     Called by the constructor that takes an id */
    void SetID(const PluginID & id);
    const PluginID& GetID() const noexcept;
+   //! Initializes the effect on demand
    const EffectInstanceFactory *GetEffect();
+   //! const accessor will not initialize the effect on demand
+   const EffectInstanceFactory *GetEffect() const { return mPlugin; }
 
    //! Expose a pointer to the state's instance (making one as needed).
    /*!
     @post `true` (no promise result is not null)
     */
    std::shared_ptr<EffectInstance> GetInstance();
-   
+
    //! Main thread sets up for playback
    std::shared_ptr<EffectInstance> Initialize(double rate);
    //! Main thread sets up this state before adding it to lists
@@ -62,17 +72,27 @@ public:
    /*! @param running means no pause or deactivation of containing list */
    bool ProcessStart(bool running);
    //! Worker thread processes part of a batch of samples
+   /*!
+    @return how many leading samples are discardable for latency
+    */
    size_t Process(Track &track,
-      unsigned chans,
+      unsigned chans, // How many channels the playback device needs
       const float *const *inbuf, //!< chans input buffers
       float *const *outbuf, //!< chans output buffers
-      float *dummybuf, //!< one scratch buffer
       size_t numSamples);
    //! Worker thread finishes a batch of samples
    bool ProcessEnd();
 
+   const EffectSettings &GetSettings() const { return mMainSettings.settings; }
+
+   //! Test only in the main thread
+   bool IsEnabled() const noexcept;
+
    //! Test only in the worker thread, or else when there is no processing
    bool IsActive() const noexcept;
+
+   //! Set only in the main thread
+   void SetActive(bool active);
 
    //! Main thread cleans up playback
    bool Finalize() noexcept;
@@ -92,6 +112,7 @@ public:
    std::shared_ptr<EffectSettingsAccess> GetAccess();
 
 private:
+
    std::shared_ptr<EffectInstance> EnsureInstance(double rate);
 
    struct Access;
@@ -106,19 +127,27 @@ private:
       return mpAccessState.load(std::memory_order_acquire);
    }
 
-   /*! @name Members that are copied for undo and redo
-    @{
-    */
-
    PluginID mID;
-
+   
+   //! Stateful instance made by the plug-in
+   std::weak_ptr<EffectInstance> mwInstance;
    //! Stateless effect object
    const EffectInstanceFactory *mPlugin{};
+
+   struct SettingsAndCounter {
+      using Counter = unsigned char;
+
+      EffectSettings settings;
+      Counter counter{ 0 };
+
+      void swap(SettingsAndCounter &other) {
+         settings.swap(other.settings);
+         std::swap(counter, other.counter);
+      }
+   };
    
    //! Updated immediately by Access::Set in the main thread
-   NonInterfering<EffectSettings> mMainSettings;
-
-   //! @}
+   NonInterfering<SettingsAndCounter> mMainSettings;
 
    /*! @name Members that are changed also in the worker thread
     @{
@@ -126,7 +155,9 @@ private:
 
    //! Updated with delay, but atomically, in the worker thread; skipped by the
    //! copy constructor so that there isn't a race when pushing an Undo state
-   NonInterfering<EffectSettings> mWorkerSettings;
+   NonInterfering<SettingsAndCounter> mWorkerSettings;
+   //! How many samples must be discarded
+   std::optional<EffectInstance::SampleCount> mLatency;
    //! Assigned in the worker thread at the start of each processing scope
    bool mLastActive{};
 
@@ -136,10 +167,7 @@ private:
     @{
     */
     
-   //! Stateful instance made by the plug-in
-   std::weak_ptr<EffectInstance> mwInstance;
-
-   std::unordered_map<Track *, size_t> mGroups;
+   std::unordered_map<Track *, std::pair<size_t, double>> mGroups;
 
    // This must not be reset to nullptr while a worker thread is running.
    // In fact it is never yet reset to nullptr, before destruction.

@@ -77,16 +77,27 @@ size_t LV2Instance::GetBlockSize() const
    return mFeatures.mBlockSize;
 }
 
-sampleCount LV2Instance::GetLatency(const EffectSettings &, double) const
+unsigned LV2Instance::GetAudioInCount() const
+{
+   return mPorts.mAudioIn;
+}
+
+unsigned LV2Instance::GetAudioOutCount() const
+{
+   return mPorts.mAudioOut;
+}
+
+auto LV2Instance::GetLatency(const EffectSettings &, double) const
+   -> SampleCount
 {
    if (mMaster && mUseLatency && mPorts.mLatencyPort >= 0)
-      return sampleCount(mMaster->GetLatency());
+      return mMaster->GetLatency();
    return 0;
 }
 
 // Start of destructive processing path
 bool LV2Instance::ProcessInitialize(EffectSettings &settings,
-   double sampleRate, sampleCount, ChannelNames chanMap)
+   double sampleRate, ChannelNames chanMap)
 {
    MakeMaster(settings, sampleRate, false);
    if (!mMaster)
@@ -158,6 +169,11 @@ bool LV2Instance::RealtimeAddProcessor(
 
 bool LV2Instance::RealtimeSuspend()
 {
+   if (mMaster)
+      mMaster->Deactivate();
+   for (auto &pSlave : mSlaves)
+      pSlave->Deactivate();
+
    mPositionSpeed = 0.0;
    mPositionFrame = 0;
    mRolling = false;
@@ -167,6 +183,11 @@ bool LV2Instance::RealtimeSuspend()
 
 bool LV2Instance::RealtimeResume()
 {
+   if (mMaster)
+      mMaster->Activate();
+   for (auto &pSlave : mSlaves)
+      pSlave->Activate();
+
    mPositionSpeed = 1.0;
    mPositionFrame = 0;
    mRolling = true;

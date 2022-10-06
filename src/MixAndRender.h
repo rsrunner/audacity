@@ -47,5 +47,11 @@ void AUDACITY_DLL_API MixAndRender(
    std::shared_ptr<WaveTrack> &uLeft,
    std::shared_ptr<WaveTrack> &uRight);
 
-#endif
+enum ChannelName : int;
+using ChannelNames = const ChannelName *;
 
+AUDACITY_DLL_API
+std::vector<MixerOptions::StageSpecification>
+GetEffectStages(const WaveTrack &track);
+
+#endif

@@ -52,6 +52,7 @@ effects from this one class.
 #include <wx/numformatter.h>
 #include <wx/stdpaths.h>
 
+#include "BasicUI.h"
 #include "../EffectManager.h"
 #include "FileNames.h"
 #include "../../LabelTrack.h"
@@ -670,6 +671,7 @@ bool NyquistEffect::Process(EffectInstance &, EffectSettings &settings)
       NyquistEffect proxy{ NYQUIST_WORKER_ID };
       proxy.SetCommand(mInputCmd);
       proxy.mDebug = nyquistSettings.proxyDebug;
+      proxy.mControls = move(nyquistSettings.controls);
       auto result = Delegate(proxy, nyquistSettings.proxySettings);
       if (result) {
          mT0 = proxy.mT0;
@@ -1077,6 +1079,12 @@ int NyquistEffect::ShowHostInterface(
 
    NyquistEffect effect(NYQUIST_WORKER_ID);
    effect.SetCommand(mInputCmd);
+   Finally Do{[&]{
+      // A second dialog will use effect as a pushed event handler.
+      // wxWidgets delays window destruction until idle time.
+      // Yield to destroy the dialog while effect is still in scope.
+      BasicUI::Yield();
+   }};
 
    // Must give effect its own settings to interpret, not those in access
    // Let's also give it its own instance
@@ -1113,6 +1121,7 @@ int NyquistEffect::ShowHostInterface(
          auto &nyquistSettings = GetSettings(settings);
          nyquistSettings.proxySettings = std::move(newSettings);
          nyquistSettings.proxyDebug = this->mDebug;
+         nyquistSettings.controls = move(effect.mControls);
       });
    }
    if (!pNewInstance)
@@ -1138,6 +1147,8 @@ bool NyquistEffect::EnablesDebug() const
 
 bool NyquistEffect::TransferDataToWindow(const EffectSettings &)
 {
+   mUIParent->TransferDataToWindow();
+
    bool success;
    if (mIsPrompt)
    {
@@ -1158,6 +1169,11 @@ bool NyquistEffect::TransferDataToWindow(const EffectSettings &)
 
 bool NyquistEffect::TransferDataFromWindow(EffectSettings &)
 {
+   if (!mUIParent->Validate() || !mUIParent->TransferDataFromWindow())
+   {
+      return false;
+   }
+
    if (mIsPrompt)
    {
       return TransferDataFromPromptWindow();

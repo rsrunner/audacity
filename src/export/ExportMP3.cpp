@@ -1704,7 +1704,7 @@ public:
 
    void OptionsCreate(ShuttleGui &S, int format) override;
    ProgressResult Export(AudacityProject *project,
-               std::unique_ptr<ProgressDialog> &pDialog,
+               std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                unsigned channels,
                const wxFileNameWrapper &fName,
                bool selectedOnly,
@@ -1762,7 +1762,7 @@ int ExportMP3::SetNumExportChannels()
 
 
 ProgressResult ExportMP3::Export(AudacityProject *project,
-                       std::unique_ptr<ProgressDialog> &pDialog,
+                       std::unique_ptr<BasicUI::ProgressDialog> &pDialog,
                        unsigned channels,
                        const wxFileNameWrapper &fName,
                        bool selectionOnly,
@@ -1971,11 +1971,9 @@ ProgressResult ExportMP3::Export(AudacityProject *project,
       auto &progress = *pDialog;
 
       while (updateResult == ProgressResult::Success) {
-         auto blockLen = mixer->Process(inSamples);
-
-         if (blockLen == 0) {
+         auto blockLen = mixer->Process();
+         if (blockLen == 0)
             break;
-         }
 
          float *mixed = (float *)mixer->GetBuffer();
 
@@ -2011,7 +2009,7 @@ ProgressResult ExportMP3::Export(AudacityProject *project,
             break;
          }
 
-         updateResult = progress.Update(mixer->MixGetCurrentTime() - t0, t1 - t0);
+         updateResult = progress.Poll(mixer->MixGetCurrentTime() - t0, t1 - t0);
       }
    }
 

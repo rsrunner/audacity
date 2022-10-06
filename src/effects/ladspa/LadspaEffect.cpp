@@ -89,7 +89,7 @@ DECLARE_PROVIDER_ENTRY(AudacityModule)
 {
    // Create and register the importer
    // Trust the module manager not to leak this
-   return safenew LadspaEffectsModule();
+   return std::make_unique<LadspaEffectsModule>();
 }
 
 // ============================================================================
@@ -127,7 +127,7 @@ bool LadspaEffect::CopySettingsContents(
    // of the destination vector, which will not allocate memory if dstControls
    // began with sufficient capacity.
    const auto portCount = mData->PortCount;
-   
+
    auto &srcControls = GetSettings(src).controls;
    auto &dstControls = GetSettings(dst).controls;
 
@@ -145,14 +145,14 @@ bool LadspaEffect::CopySettingsContents(
    for (unsigned long p = 0; p < portCount; ++p)
    {
       LADSPA_PortDescriptor d = mData->PortDescriptors[p];
-      
+
       if (!(LADSPA_IS_PORT_CONTROL(d)))
          continue;
 
       if (LADSPA_IS_PORT_INPUT(d) || copyOutputs)
          dstControls[p] = srcControls[p];
    }
-   
+
    return true;
 }
 
@@ -283,7 +283,7 @@ PluginPaths LadspaEffectsModule::FindModulePaths(PluginManagerInterface & pm)
    pm.FindFilesInPathList(wxT("*.dll"), pathList, files, true);
 
 #else
-   
+
    // Recursively scan for all shared objects
    pm.FindFilesInPathList(wxT("*.so"), pathList, files, true);
 
@@ -375,14 +375,6 @@ unsigned LadspaEffectsModule::DiscoverPluginsAtPath(
    return nLoaded;
 }
 
-bool LadspaEffectsModule::IsPluginValid(const PluginPath & path, bool bFast)
-{
-   if( bFast )
-      return true;
-   wxString realPath = path.BeforeFirst(wxT(';'));
-   return wxFileName::FileExists(realPath);
-}
-
 std::unique_ptr<ComponentInterface>
 LadspaEffectsModule::LoadPlugin(const PluginPath & path)
 {
@@ -396,6 +388,12 @@ LadspaEffectsModule::LoadPlugin(const PluginPath & path)
    auto result = std::make_unique<LadspaEffect>(realPath, (int)index);
    result->FullyInitializePlugin();
    return result;
+}
+
+bool LadspaEffectsModule::CheckPluginExist(const PluginPath& path) const
+{
+   const auto realPath = path.BeforeFirst(wxT(';'));
+   return wxFileName::FileExists(realPath);
 }
 
 FilePaths LadspaEffectsModule::GetSearchPaths()
@@ -744,9 +742,9 @@ bool LadspaEffect::IsDefault() const
 
 auto LadspaEffect::RealtimeSupport() const -> RealtimeSince
 {
-   return GetType() == EffectTypeGenerate
-      ? RealtimeSince::Never
-      : RealtimeSince::Always;
+   return GetType() == EffectTypeProcess
+      ? RealtimeSince::Since_3_2
+      : RealtimeSince::Never;
 }
 
 bool LadspaEffect::SupportsAutomation() const
@@ -831,7 +829,7 @@ bool LadspaEffect::InitializePlugin()
 
       // Collect the audio ports
       if (LADSPA_IS_PORT_AUDIO(d)) {
-         if (LADSPA_IS_PORT_INPUT(d)) 
+         if (LADSPA_IS_PORT_INPUT(d))
             mInputPorts[mAudioIns++] = p;
          else if (LADSPA_IS_PORT_OUTPUT(d))
             mOutputPorts[mAudioOuts++] = p;
@@ -893,13 +891,13 @@ struct LadspaEffect::Instance
 {
    using PerTrackEffect::Instance::Instance;
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
-   bool ProcessFinalize() override;
+      ChannelNames chanMap) override;
+   bool ProcessFinalize() noexcept override;
    size_t ProcessBlock(EffectSettings &settings,
       const float *const *inBlock, float *const *outBlock, size_t blockLen)
       override;
 
-   sampleCount GetLatency(const EffectSettings &settings, double sampleRate)
+   SampleCount GetLatency(const EffectSettings &settings, double sampleRate)
       const override;
 
    bool RealtimeInitialize(EffectSettings &settings, double sampleRate)
@@ -915,7 +913,10 @@ struct LadspaEffect::Instance
    override;
    bool RealtimeProcessEnd(EffectSettings &settings) noexcept override;
    bool RealtimeFinalize(EffectSettings &settings) noexcept override;
-   
+
+   unsigned GetAudioInCount() const override;
+   unsigned GetAudioOutCount() const override;
+
    const LadspaEffect &GetEffect() const
       { return static_cast<const LadspaEffect &>(mProcessor); }
 
@@ -931,39 +932,18 @@ std::shared_ptr<EffectInstance> LadspaEffect::MakeInstance() const
    return std::make_shared<Instance>(*this);
 }
 
-unsigned LadspaEffect::GetAudioInCount() const
-{
-   return mAudioIns;
-}
-
-unsigned LadspaEffect::GetAudioOutCount() const
-{
-   return mAudioOuts;
-}
-
-int LadspaEffect::GetMidiInCount() const
-{
-   return 0;
-}
-
-int LadspaEffect::GetMidiOutCount() const
-{
-   return 0;
-}
-
-sampleCount LadspaEffect::Instance::GetLatency(
-   const EffectSettings &settings, double) const
+auto LadspaEffect::Instance::GetLatency(
+   const EffectSettings &settings, double) const -> SampleCount
 {
    auto &effect = GetEffect();
    auto &controls = GetSettings(settings).controls;
-   if (effect.mUseLatency && effect.mLatencyPort >= 0) {
-      return sampleCount{ controls[effect.mLatencyPort] };
-   }
+   if (effect.mUseLatency && effect.mLatencyPort >= 0)
+      return controls[effect.mLatencyPort];
    return 0;
 }
 
 bool LadspaEffect::Instance::ProcessInitialize(
-   EffectSettings &settings, double sampleRate, sampleCount, ChannelNames)
+   EffectSettings &settings, double sampleRate, ChannelNames)
 {
    /* Instantiate the plugin */
    if (!mReady) {
@@ -977,8 +957,9 @@ bool LadspaEffect::Instance::ProcessInitialize(
    return true;
 }
 
-bool LadspaEffect::Instance::ProcessFinalize()
+bool LadspaEffect::Instance::ProcessFinalize() noexcept
 {
+return GuardedCall<bool>([&]{
    if (mReady) {
       mReady = false;
       GetEffect().FreeInstance(mMaster);
@@ -986,6 +967,7 @@ bool LadspaEffect::Instance::ProcessFinalize()
    }
 
    return true;
+});
 }
 
 size_t LadspaEffect::Instance::ProcessBlock(EffectSettings &,
@@ -1024,6 +1006,16 @@ bool LadspaEffect::Instance::RealtimeAddProcessor(
    return true;
 }
 
+unsigned LadspaEffect::Instance::GetAudioOutCount() const
+{
+   return GetEffect().mAudioOuts;
+}
+
+unsigned LadspaEffect::Instance::GetAudioInCount() const
+{
+   return GetEffect().mAudioIns;
+}
+
 bool LadspaEffect::Instance::RealtimeFinalize(EffectSettings &) noexcept
 {
 return GuardedCall<bool>([&]{
@@ -1038,11 +1030,17 @@ return GuardedCall<bool>([&]{
 
 bool LadspaEffect::Instance::RealtimeSuspend()
 {
+   if (auto fn = GetEffect().mData->deactivate)
+      for (auto &slave : mSlaves)
+         fn(slave);
    return true;
 }
 
 bool LadspaEffect::Instance::RealtimeResume()
 {
+   if (auto fn = GetEffect().mData->activate)
+      for (auto &slave : mSlaves)
+         fn(slave);
    return true;
 }
 
@@ -1723,7 +1721,7 @@ void LadspaEffect::Validator::RefreshControls()
       if (LADSPA_IS_HINT_SAMPLE_RATE(hint.HintDescriptor))
          forceint = true;
 
-      if (LADSPA_IS_PORT_OUTPUT(d)) 
+      if (LADSPA_IS_PORT_OUTPUT(d))
          continue;
 
       if (LADSPA_IS_HINT_TOGGLED(hint.HintDescriptor)) {

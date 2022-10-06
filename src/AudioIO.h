@@ -241,6 +241,8 @@ public:
    * they are different. */
    size_t GetCommonlyReadyPlayback();
 
+   size_t GetCommonlyWrittenForPlayback();
+
    /// How many frames of zeros were output due to pauses?
    long    mNumPauseFrames;
 
@@ -310,10 +312,6 @@ public:
    std::atomic<bool>   mAudioThreadTrackBufferExchangeLoopActive;
       
    std::atomic<Acknowledge>  mAudioThreadAcknowledge;
-
-   // Sync start/stop of AudioThread processing
-   void StartAudioThreadAndWait();
-   void StopAudioThreadAndWait();
 
    // Async start/stop + wait of AudioThread processing.
    // Provided to allow more flexibility, however use with caution:
@@ -432,7 +430,7 @@ public:
 
    //! Forwards to RealtimeEffectManager::RemoveState with proper init scope
    void RemoveState(AudacityProject &project,
-      Track *pTrack, const std::shared_ptr<RealtimeEffectState> &pState);
+      Track *pTrack, std::shared_ptr<RealtimeEffectState> pState);
 
    /** \brief Start up Portaudio for capture and recording as needed for
     * input monitoring and software playthrough only
@@ -598,6 +596,9 @@ private:
    void FillPlayBuffers();
    void TransformPlayBuffers(
       std::optional<RealtimeEffects::ProcessingScope> &scope);
+   bool ProcessPlaybackSlices(
+      std::optional<RealtimeEffects::ProcessingScope> &pScope,
+      size_t available);
 
    //! Second part of TrackBufferExchange
    void DrainRecordBuffers();

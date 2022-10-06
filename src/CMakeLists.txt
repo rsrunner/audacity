@@ -315,6 +315,8 @@ list( APPEND SOURCES
       WaveTrack.cpp
       WaveTrack.h
       WaveTrackLocation.h
+      WaveTrackSink.cpp
+      WaveTrackSink.h
       WrappedType.cpp
       WrappedType.h
 
@@ -468,6 +470,8 @@ list( APPEND SOURCES
       effects/RealtimeEffectManager.h
       effects/RealtimeEffectState.cpp
       effects/RealtimeEffectState.h
+      effects/RealtimeEffectStateUI.h
+      effects/RealtimeEffectStateUI.cpp
       effects/Repair.cpp
       effects/Repair.h
       effects/Repeat.cpp
@@ -539,22 +543,20 @@ list( APPEND SOURCES
          effects/VST3/VST3Effect.cpp
          effects/VST3/VST3EffectsModule.h
          effects/VST3/VST3EffectsModule.cpp
+         effects/VST3/VST3Instance.h
+         effects/VST3/VST3Instance.cpp
          effects/VST3/VST3Utils.h
          effects/VST3/VST3Utils.cpp
+         effects/VST3/VST3Wrapper.h
+         effects/VST3/VST3Wrapper.cpp
          effects/VST3/VST3OptionsDialog.h
          effects/VST3/VST3OptionsDialog.cpp
          effects/VST3/VST3ParametersWindow.h
          effects/VST3/VST3ParametersWindow.cpp
-         effects/VST3/internal/ComponentHandler.h
-         effects/VST3/internal/ComponentHandler.cpp
+         effects/VST3/VST3UIValidator.cpp
+         effects/VST3/VST3UIValidator.h
          effects/VST3/internal/ConnectionProxy.h
          effects/VST3/internal/ConnectionProxy.cpp
-         effects/VST3/internal/ParameterChanges.h
-         effects/VST3/internal/ParameterChanges.cpp
-         effects/VST3/internal/ParameterQueuePool.h
-         effects/VST3/internal/ParameterQueuePool.cpp
-         effects/VST3/internal/ParameterValueQueue.h
-         effects/VST3/internal/ParameterValueQueue.cpp
          effects/VST3/internal/PlugFrame.h
          effects/VST3/internal/PlugFrame.cpp
       >
@@ -1112,6 +1114,27 @@ list( APPEND SOURCES
           update/NoUpdatesAvailableDialog.cpp
       >
 
+      # Audio.com
+      $<$<BOOL:${${_OPT}has_audiocom_upload}>:
+         cloud/ShareAudioToolbar.cpp
+         cloud/ShareAudioToolbar.h
+         cloud/audiocom/AuthorizationHandler.cpp
+         cloud/audiocom/AuthorizationHandler.h
+         cloud/audiocom/LinkAccountDialog.cpp
+         cloud/audiocom/LinkAccountDialog.h
+         cloud/audiocom/LinkFailedDialog.cpp
+         cloud/audiocom/LinkFailedDialog.h
+         cloud/audiocom/LinkSucceededDialog.cpp
+         cloud/audiocom/LinkSucceededDialog.h
+         cloud/audiocom/ShareAudioDialog.cpp
+         cloud/audiocom/ShareAudioDialog.h
+         cloud/audiocom/UserImage.cpp
+         cloud/audiocom/UserImage.h
+      >
+
+      $<$<AND:$<BOOL:${${_OPT}has_audiocom_upload}>,$<BOOL:${${_OPT}has_url_schemes_support}>>:
+         cloud/audiocom/LinkUrlHandler.cpp
+      >
       Experimental.cmake
 )
 
@@ -1136,7 +1159,7 @@ list( APPEND INCLUDES
 # Define resources
 #
 list( APPEND RESOURCES
-   ../presets/EQDefaultCurves.xml
+   ${topdir}/resources/EffectsMenuDefaults.xml
 )
 
 #
@@ -1250,16 +1273,18 @@ if( NOT CMAKE_SYSTEM_NAME MATCHES "Windows|Darwin" )
 endif()
 
 if( CMAKE_SYSTEM_NAME MATCHES "Windows" )
+   # Define the Windows specific resources
+   list( APPEND WIN_RESOURCES
+      ../win/audacity.rc
+   )
+
    set_target_properties(
       ${TARGET}
       PROPERTIES
          # Make sure we're a GUI application and not a console tool
          WIN32_EXECUTABLE ON
-   )
-
-   # Define the Windows specific resources
-   list( APPEND WIN_RESOURCES
-      ../win/audacity.rc
+         # Add the resources
+         RESOURCE "${WIN_RESOURCES}"
    )
 
    # Copy over the wxWidgets DLLs
@@ -1282,6 +1307,15 @@ if( CMAKE_SYSTEM_NAME MATCHES "Windows" )
          ${TARGET}
       COMMAND
          ${CMAKE_COMMAND} -E copy ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} ${_DEST}
+      POST_BUILD
+   )
+
+   # Copy resource files into build folder
+   add_custom_command(
+      TARGET
+         ${TARGET}
+      COMMAND
+         ${CMAKE_COMMAND} -E copy ${RESOURCES} ${_DEST}
       POST_BUILD
    )
 elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
@@ -1396,6 +1430,12 @@ elseif( CMAKE_SYSTEM_NAME MATCHES "Darwin" )
       POST_BUILD
    )
 else()
+   set_target_properties(
+      ${TARGET}
+      PROPERTIES
+         # Add the resources
+         RESOURCE "${RESOURCES}"
+   )
    set_target_property_all( ${TARGET} RUNTIME_OUTPUT_DIRECTORY "${_DEST}" )
 
    # Build the list of mimetypes
@@ -1456,15 +1496,8 @@ else()
 
    add_executable(findlib ../linux/findlib.c)
    target_link_libraries(findlib ${CMAKE_DL_LIBS})
+   set_target_property_all( findlib SKIP_BUILD_RPATH On )
 endif()
-
-add_custom_command(
-   TARGET
-      ${TARGET} POST_BUILD
-   COMMAND
-      ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/res" "${_DEST}/res"
-)
-
 
 if(CRASH_REPORT_URL)
     list(APPEND DEFINES PRIVATE -DCRASH_REPORT_URL="${CRASH_REPORT_URL}")
@@ -1477,7 +1510,7 @@ endif()
 set_target_property_all( ${TARGET} RUNTIME_OUTPUT_NAME ${AUDACITY_NAME} )
 
 organize_source( "${TARGET_ROOT}/.." "include" "${HEADERS}" )
-organize_source( "${TARGET_ROOT}/../presets" "presets" "${RESOURCES}" )
+organize_source( "${TARGET_ROOT}/../resources" "resources" "${RESOURCES}" )
 organize_source( "${TARGET_ROOT}" "src" "${SOURCES}" )
 organize_source( "${TARGET_ROOT}/../mac/Resources" "mac" "${MAC_RESOURCES}" )
 organize_source( "${TARGET_ROOT}/../win" "win" "${WIN_RESOURCES}" )
@@ -1516,6 +1549,7 @@ set( AUDACITY_LIBRARIES
    lib-module-manager-interface
    lib-project-history-interface
    lib-graphics-interface
+   lib-audio-graph
 )
 
 if (${_OPT}use_ffmpeg)
@@ -1527,6 +1561,18 @@ endif()
 if ( ${_OPT}has_networking )
    list( APPEND AUDACITY_LIBRARIES
       lib-network-manager-interface
+   )
+endif()
+
+if( ${_OPT}has_url_schemes_support )
+   list( APPEND AUDACITY_LIBRARIES
+      lib-url-schemes-interface
+   )
+endif()
+
+if( ${_OPT}has_audiocom_upload )
+   list( APPEND AUDACITY_LIBRARIES
+      lib-cloud-audiocom-interface
    )
 endif()
 
@@ -1575,22 +1621,25 @@ else()
                DESTINATION "."
                RESOURCE DESTINATION "${_APPDIR}/Resources" )
    else()
+
       install( TARGETS ${TARGET} RUNTIME )
+
       install( DIRECTORY "${_DEST}/${_LIBDIR}/"
                DESTINATION "${_LIBDIR}"
                USE_SOURCE_PERMISSIONS
                FILES_MATCHING PATTERN "*.so*" )
+
+      install( CODE "set( _LIBDIR \"${_LIBDIR}\")" )
+      install( SCRIPT "${CMAKE_SOURCE_DIR}/scripts/build/linux/fix_rpath.cmake" )
+
       install( FILES "${_INTDIR}/audacity.desktop"
                DESTINATION "${_DATADIR}/applications" )
       install( FILES "${topdir}/LICENSE.txt" "${topdir}/README.txt"
                DESTINATION "${_DATADIR}/doc/${AUDACITY_NAME}" )
       install( FILES "${_SRCDIR}/audacity.xml"
                DESTINATION "${_DATADIR}/mime/packages" )
-      install( FILES "${topdir}/presets/EQDefaultCurves.xml"
-               DESTINATION "${_PKGDATA}" )
-      install( PROGRAMS "${PROJECT_SOURCE_DIR}/linux/audacity.sh"
-               DESTINATION "."
-               RENAME "audacity" )
+      install( TARGETS ${TARGET}
+               RESOURCE DESTINATION "${_PKGDATA}" )
    endif()
 endif()
 

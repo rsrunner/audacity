@@ -52,12 +52,22 @@ struct EffectEcho::Instance
    {}
 
    bool ProcessInitialize(EffectSettings& settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
 
    size_t ProcessBlock(EffectSettings& settings,
       const float* const* inBlock, float* const* outBlock, size_t blockLen)  override;
 
-   bool ProcessFinalize(void) override;
+   bool ProcessFinalize() noexcept override;
+
+   unsigned GetAudioOutCount() const override
+   {
+      return 1;
+   }
+
+   unsigned GetAudioInCount() const override
+   {
+      return 1;
+   }
 
    Floats history;
    size_t histPos;
@@ -107,18 +117,8 @@ EffectType EffectEcho::GetType() const
    return EffectTypeProcess;
 }
 
-unsigned EffectEcho::GetAudioInCount() const
-{
-   return 1;
-}
-
-unsigned EffectEcho::GetAudioOutCount() const
-{
-   return 1;
-}
-
 bool EffectEcho::Instance::ProcessInitialize(
-   EffectSettings& settings, double sampleRate, sampleCount, ChannelNames)
+   EffectSettings& settings, double sampleRate, ChannelNames)
 {
    auto& echoSettings = GetSettings(settings);  
    if (echoSettings.delay == 0.0)
@@ -144,7 +144,7 @@ bool EffectEcho::Instance::ProcessInitialize(
    return history != NULL;
 }
 
-bool EffectEcho::Instance::ProcessFinalize()
+bool EffectEcho::Instance::ProcessFinalize() noexcept
 {
    return true;
 }

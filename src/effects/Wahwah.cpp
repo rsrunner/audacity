@@ -136,12 +136,12 @@ struct EffectWahwah::Instance
    {}
 
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
 
    size_t ProcessBlock(EffectSettings& settings,
       const float* const* inBlock, float* const* outBlock, size_t blockLen)  override;
 
-   //bool ProcessFinalize(void) override;
+   //bool ProcessFinalize() noexcept override;
 
    bool RealtimeInitialize(EffectSettings& settings, double) override;
 
@@ -160,8 +160,11 @@ struct EffectWahwah::Instance
    size_t InstanceProcess(EffectSettings& settings, EffectWahwahState& data,
       const float* const* inBlock, float* const* outBlock, size_t blockLen);
 
-   EffectWahwahState mMaster;
-   std::vector<EffectWahwahState> mSlaves;
+   unsigned GetAudioInCount() const override;
+   unsigned GetAudioOutCount() const override;
+
+   EffectWahwahState mState;
+   std::vector<EffectWahwah::Instance> mSlaves;
 };
 
 
@@ -205,32 +208,22 @@ EffectType EffectWahwah::GetType() const
 
 auto EffectWahwah::RealtimeSupport() const -> RealtimeSince
 {
-   return RealtimeSince::Always;
-}
-
-unsigned EffectWahwah::GetAudioInCount() const
-{
-   return 1;
-}
-
-unsigned EffectWahwah::GetAudioOutCount() const
-{
-   return 1;
+   return RealtimeSince::Never;
 }
 
 bool EffectWahwah::Instance::ProcessInitialize(EffectSettings & settings,
-   double sampleRate, sampleCount, ChannelNames chanMap)
+   double sampleRate, ChannelNames chanMap)
 {
-   InstanceInit(settings, mMaster, sampleRate);
+   InstanceInit(settings, mState, sampleRate);
    if (chanMap[0] == ChannelNameFrontRight)
-      mMaster.phase += M_PI;
+      mState.phase += M_PI;
    return true;
 }
 
 size_t EffectWahwah::Instance::ProcessBlock(EffectSettings &settings,
    const float *const *inBlock, float *const *outBlock, size_t blockLen)
 {
-   return InstanceProcess(settings, mMaster, inBlock, outBlock, blockLen);
+   return InstanceProcess(settings, mState, inBlock, outBlock, blockLen);
 }
 
 bool EffectWahwah::Instance::RealtimeInitialize(EffectSettings &, double)
@@ -243,9 +236,9 @@ bool EffectWahwah::Instance::RealtimeInitialize(EffectSettings &, double)
 bool EffectWahwah::Instance::RealtimeAddProcessor(
    EffectSettings &settings, unsigned, float sampleRate)
 {
-   EffectWahwahState slave;
+   EffectWahwah::Instance slave(mProcessor);
 
-   InstanceInit(settings, slave, sampleRate);
+   InstanceInit(settings, slave.mState, sampleRate);
 
    mSlaves.push_back(slave);
 
@@ -264,7 +257,7 @@ size_t EffectWahwah::Instance::RealtimeProcess(size_t group, EffectSettings &set
 {
    if (group >= mSlaves.size())
       return 0;
-   return InstanceProcess(settings, mSlaves[group], inbuf, outbuf, numSamples);
+   return InstanceProcess(settings, mSlaves[group].mState, inbuf, outbuf, numSamples);
 }
 
 // Effect implementation
@@ -466,6 +459,16 @@ size_t EffectWahwah::Instance::InstanceProcess(EffectSettings& settings,
    }
 
    return blockLen;
+}
+
+unsigned EffectWahwah::Instance::GetAudioOutCount() const
+{
+   return 1;
+}
+
+unsigned EffectWahwah::Instance::GetAudioInCount() const
+{
+   return 1;
 }
 
 void EffectWahwah::Validator::OnFreqSlider(wxCommandEvent& evt)

@@ -25,18 +25,20 @@ class RealtimeEffectState;
 
 class Track;
 
-struct RealtimeEffectListMessage
+struct RealtimeEffectListMessage final
 {
    enum class Type
    {
-      Insert,///<New effect item was added to the list at srcIndex position
-      Replace,///<Effect item was replaced with a new item at srcIndex position
-      Remove,///<Effect item was removed from the list at srcIndex position
-      Move ///<Item position has changed, from srcIndex to dstIndex
+      Insert,///<New effect item was added to the list at srcIndex position. affectedState is a new state
+      WillReplace,///<Effect item will be replaced with a new item at srcIndex position. affectedState is the state to be replaced.
+      DidReplace,///<Effect item was replaced with a new item at srcIndex position. affectedState is an old state.
+      Remove,///<Effect item was removed from the list at srcIndex position. affectedState is removed state.
+      Move ///<Item position has changed, from srcIndex to dstIndex.  affectedState is the moved state
    };
    Type type;
    size_t srcIndex;
    size_t dstIndex;
+   std::shared_ptr<RealtimeEffectState> affectedState;
 };
 
 class RealtimeEffectList final
@@ -105,7 +107,10 @@ public:
 
    //! Use only in the main thread
    //! On success sends Remove message.
-   void RemoveState(const std::shared_ptr<RealtimeEffectState> &pState);
+   void RemoveState(std::shared_ptr<RealtimeEffectState> pState);
+
+   //! Use only in the main thread.  Sends Remove messages
+   void Clear();
 
    //! Report the position of a state in the list
    std::optional<size_t> FindState(
@@ -117,6 +122,10 @@ public:
    //! Returns effect state at given position
    //! Use only in the main thread, to avoid races
    std::shared_ptr<RealtimeEffectState> GetStateAt(size_t index) noexcept;
+   //! Returns effect state at given position
+   //! Use only in the main thread, to avoid races
+   std::shared_ptr<const RealtimeEffectState> GetStateAt(size_t index) const
+      noexcept;
 
    /**
     * \brief Use only in the main thread. Changes effect order in the stack.

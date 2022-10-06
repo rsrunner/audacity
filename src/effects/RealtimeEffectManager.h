@@ -98,7 +98,7 @@ public:
     */
    /*! No effect if realtime is active but scope is not supplied */
    void RemoveState(RealtimeEffects::InitializationScope *pScope,
-      Track *pTrack, const std::shared_ptr<RealtimeEffectState> &pState);
+      Track *pTrack, std::shared_ptr<RealtimeEffectState> pState);
 
    //! Report the position of a state in the global or a per-track list
    std::optional<size_t> FindState(
@@ -147,7 +147,8 @@ private:
    void ProcessStart(bool suspended);
    /*! @copydoc ProcessScope::Process */
    size_t Process(bool suspended, Track &track,
-      float *const *buffers, float *const *scratch, size_t numSamples);
+      float *const *buffers, float *const *scratch,
+      unsigned nBuffers, size_t numSamples);
    void ProcessEnd(bool suspended) noexcept;
 
    RealtimeEffectManager(const RealtimeEffectManager&) = delete;
@@ -193,7 +194,6 @@ private:
    // which are to be called only while there is no playback
    std::vector<Track *> mGroupLeaders; //!< all are non-null
 
-   std::unordered_map<Track *, unsigned> mChans;
    std::unordered_map<Track *, double> mRates;
 };
 
@@ -203,9 +203,11 @@ class InitializationScope {
 public:
    InitializationScope() {}
    explicit InitializationScope(
-      std::weak_ptr<AudacityProject> wProject, double sampleRate)
-      : mSampleRate{ sampleRate }
+      std::weak_ptr<AudacityProject> wProject, double sampleRate,
+      unsigned numPlaybackChannels
+   )  : mSampleRate{ sampleRate }
       , mwProject{ move(wProject) }
+      , mNumPlaybackChannels{ numPlaybackChannels }
    {
       if (auto pProject = mwProject.lock())
          RealtimeEffectManager::Get(*pProject).Initialize(*this, sampleRate);
@@ -227,6 +229,7 @@ public:
 
    std::vector<std::shared_ptr<EffectInstance>> mInstances;
    double mSampleRate;
+   unsigned mNumPlaybackChannels;
 
 private:
    std::weak_ptr<AudacityProject> mwProject;
@@ -259,19 +262,20 @@ public:
          RealtimeEffectManager::Get(*pProject).ProcessEnd(mSuspended);
    }
 
+   //! @return how many samples to discard for latency
    size_t Process(Track &track,
-      float *const *buffers, /*!< Assume as many buffers, as channels were
-         specified in the AddTrack call */
-      float *const *scratch, /*!< As many temporary buffers as in buffers,
-         plus one more */
+      float *const *buffers,
+      float *const *scratch,
+      unsigned nBuffers, //!< how many buffers; equal number of scratches
       size_t numSamples //!< length of each buffer
    )
    {
       if (auto pProject = mwProject.lock())
          return RealtimeEffectManager::Get(*pProject)
-            .Process(mSuspended, track, buffers, scratch, numSamples);
+            .Process(mSuspended, track, buffers, scratch,
+               nBuffers, numSamples);
       else
-         return numSamples; // consider them trivially processed
+         return 0; // consider them trivially processed
    }
 
 private:

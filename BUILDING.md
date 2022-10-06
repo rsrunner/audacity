@@ -3,7 +3,7 @@
 ## Prerequisites
 
 * **python3** >= 3.5
-* **conan** >= 1.32.0
+* **conan** >= 1.51.0
 * **cmake** >= 3.16
 * A working C++ 17 compiler
 * Graphviz (optional)
@@ -238,7 +238,7 @@ This option implies `-Daudacity_obey_system_dependencies=On` and disables `local
 
 ### Disabling pre-built binaries downloads for Conan
 
-It is possible to force Conan to build all the dependencies from the source code without using the pre-built binaries. To do so, please pass `-Daudaicity_conan_allow_prebuilt_binaries=Off` to CMake during the configuration. 
+It is possible to force Conan to build all the dependencies from the source code without using the pre-built binaries. To do so, please pass `-Daudacity_conan_allow_prebuilt_binaries=Off` to CMake during the configuration. 
 
 Additionally, passing `-Daudacity_conan_force_build_dependencies=On` will force Conan to rebuild all the packaged during *every* configuration. This can be usefull for the offline builds against the Conan download cache.
 
@@ -297,7 +297,7 @@ The default build architecture is selected based on `CMAKE_HOST_SYSTEM_PROCESSOR
 When cross-compiling from Intel to AppleSilicon, or if *Rosetta 2* is not installed on the AppleSilicon Mac, 
 a native Audacity version build directory is required, as Audacity needs a working `image-compiler`. 
 
-For example, to build ARM64 version of Audaicty on Intel Mac:
+For example, to build ARM64 version of Audacity on Intel Mac:
 
 ```
 $ mkdir build.x64
@@ -310,3 +310,14 @@ $ cmake --build build.arm64 --config Release
 
 This will place ARM64 version into `build.arm64/Release/`.
 
+### Building with VST3SDK without Conan (Linux only)
+
+Set one of the following environment variables to the path to the VST3 SDK (i.e. the folder containing the `pluginterfaces` folder):
+
+* `VST3_SDK_DIR`
+* `VST3SDK_PATH`
+* `VST3SDK`
+
+or copy the VST3 SDK to `vst3sdk` directory in the Audacity source tree.
+
+Pass `-Daudacity_use_vst3sdk=system` to CMake. CMake will build the SDK during the configuration.

@@ -36,11 +36,11 @@ public:
    const LV2PortStates &GetPortStates() const { return mPortStates; }
 
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
    size_t ProcessBlock(EffectSettings &settings,
       const float *const *inBlock, float *const *outBlock, size_t blockLen)
    override;
-   sampleCount GetLatency(
+   SampleCount GetLatency(
       const EffectSettings &settings, double sampleRate) const override;
 
    const LV2Wrapper *GetMaster() const { return mMaster.get(); }
@@ -56,6 +56,9 @@ public:
 
    size_t GetBlockSize() const override;
    size_t SetBlockSize(size_t maxBlockSize) override;
+
+   unsigned GetAudioInCount() const override;
+   unsigned GetAudioOutCount() const override;
 
    bool RealtimeInitialize(EffectSettings &settings, double sampleRate)
       override;

@@ -41,14 +41,18 @@
 #include <unordered_map>
 
 static const int kPlayID = 20102;
-static const int kRewindID = 20103;
-static const int kFFwdID = 20104;
 
 using t2bHash = std::unordered_map< void*, bool >;
 
 bool StatefulEffect::Instance::Process(EffectSettings &settings)
 {
    return GetEffect().Process(*this, settings);
+}
+
+auto StatefulEffect::Instance::GetLatency(const EffectSettings &, double) const
+   -> SampleCount
+{
+   return GetEffect().GetLatency().as_long_long();
 }
 
 Effect::Effect()
@@ -132,16 +136,6 @@ std::shared_ptr<EffectInstance> StatefulEffect::MakeInstance() const
    // Stateless effects should override this function and be really const
    // correct.
    return std::make_shared<Instance>(const_cast<StatefulEffect&>(*this));
-}
-
-unsigned Effect::GetAudioInCount() const
-{
-   return 0;
-}
-
-unsigned Effect::GetAudioOutCount() const
-{
-   return 0;
 }
 
 const EffectParameterMethods &Effect::Parameters() const
@@ -629,7 +623,8 @@ bool Effect::EnableApply(bool enable)
          }
       }
 
-      apply->Enable(enable);
+      if (apply)
+         apply->Enable(enable);
    }
 
    EnablePreview(enable);
@@ -651,27 +646,17 @@ bool Effect::EnablePreview(bool enable)
       wxWindow *play = dlg->FindWindow(kPlayID);
       if (play)
       {
-         wxWindow *rewind = dlg->FindWindow(kRewindID);
-         wxWindow *ffwd = dlg->FindWindow(kFFwdID);
-
          // Don't allow focus to get trapped
          if (!enable)
          {
             wxWindow *focus = dlg->FindFocus();
-            if (focus && (focus == play || focus == rewind || focus == ffwd))
+            if (focus == play)
             {
                dlg->FindWindow(wxID_CLOSE)->SetFocus();
             }
          }
 
          play->Enable(enable);
-         if (SupportsRealtime())
-         {
-            if (rewind)
-               rewind->Enable(enable);
-            if (ffwd)
-               ffwd->Enable(enable);
-         }
       }
    }
 
@@ -690,7 +675,8 @@ bool Effect::TrackProgress(
    int whichTrack, double frac, const TranslatableString &msg) const
 {
    auto updateResult = (mProgress ?
-      mProgress->Poll(whichTrack + frac, (double) mNumTracks, msg) :
+      mProgress->Poll((whichTrack + frac) * 1000,
+         (double) mNumTracks * 1000, msg) :
       ProgressResult::Success);
    return (updateResult != ProgressResult::Success);
 }
@@ -699,7 +685,8 @@ bool Effect::TrackGroupProgress(
    int whichGroup, double frac, const TranslatableString &msg) const
 {
    auto updateResult = (mProgress ?
-      mProgress->Poll(whichGroup + frac, (double) mNumGroups, msg) :
+      mProgress->Poll((whichGroup + frac) * 1000,
+         (double) mNumGroups * 1000, msg) :
       ProgressResult::Success);
    return (updateResult != ProgressResult::Success);
 }
@@ -872,6 +859,10 @@ int Effect::MessageBox( const TranslatableString& message,
       : XO("%s: %s").Format( GetName(), titleStr );
    return AudacityMessageBox( message, title, style, mUIParent );
 }
+EffectUIClientInterface* Effect::GetEffectUIClientInterface()
+{
+   return this;
+}
 
 DefaultEffectUIValidator::DefaultEffectUIValidator(
    EffectUIClientInterface &effect, EffectSettingsAccess &access,
@@ -882,8 +873,7 @@ DefaultEffectUIValidator::DefaultEffectUIValidator(
 
 DefaultEffectUIValidator::~DefaultEffectUIValidator()
 {
-   if (mpParent)
-      mpParent->PopEventHandler();
+   Disconnect();
 }
 
 bool DefaultEffectUIValidator::ValidateUI()
@@ -898,4 +888,12 @@ bool DefaultEffectUIValidator::ValidateUI()
 bool DefaultEffectUIValidator::IsGraphicalUI()
 {
    return mEffect.IsGraphicalUI();
+}
+
+void DefaultEffectUIValidator::Disconnect()
+{
+   if (mpParent) {
+      mpParent->PopEventHandler();
+      mpParent = nullptr;
+   }
 }

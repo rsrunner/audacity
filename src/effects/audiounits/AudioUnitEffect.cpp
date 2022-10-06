@@ -184,10 +184,9 @@ bool AudioUnitEffect::IsDefault() const
 
 auto AudioUnitEffect::RealtimeSupport() const -> RealtimeSince
 {
-   return RealtimeSince::Always;
-   // return GetType() == EffectTypeProcess
-      // ? RealtimeSince::Always
-      // : RealtimeSince::Never;
+   return GetType() == EffectTypeProcess
+      ? RealtimeSince::Since_3_2
+      : RealtimeSince::Never;
 }
 
 bool AudioUnitEffect::SupportsAutomation() const
@@ -228,6 +227,10 @@ bool AudioUnitEffect::InitializePlugin()
    if (!CreateAudioUnit())
       return false;
 
+   // Use an arbitrary rate while completing the discovery of channel support
+   if (!SetRateAndChannels(44100.0, GetSymbol().Internal()))
+      return false;
+
    // Determine interactivity
    mInteractive = (Count(mParameters) > 0);
    if (!mInteractive) {
@@ -246,6 +249,7 @@ bool AudioUnitEffect::InitializePlugin()
             kAudioUnitProperty_GetUIComponentList, compDesc);
       }
    }
+
    return true;
 }
 
@@ -267,26 +271,6 @@ bool AudioUnitEffect::FullyInitializePlugin()
       mUIType, FullValue.MSGID().GET() /* Config stores un-localized string */);
 
    return true;
-}
-
-unsigned AudioUnitEffect::GetAudioInCount() const
-{
-   return mAudioIns;
-}
-
-unsigned AudioUnitEffect::GetAudioOutCount() const
-{
-   return mAudioOuts;
-}
-
-int AudioUnitEffect::GetMidiInCount() const
-{
-   return 0;
-}
-
-int AudioUnitEffect::GetMidiOutCount() const
-{
-   return 0;
 }
 
 #if 0
@@ -375,7 +359,7 @@ bool AudioUnitEffect::LoadSettings(
        ; parms.GetFirstEntry(key, index)
    ) do {
       if (auto pKey = ParameterInfo::ParseKey(key)
-         ; pKey && parms.Read(key, value)
+         ; pKey && parms.Read(key, &value)
       )
          map[*pKey].emplace(mySettings.Intern(key), value);
    } while(parms.GetNextEntry(key, index));
@@ -397,6 +381,11 @@ bool AudioUnitEffect::SaveUserPreset(
 
 bool AudioUnitEffect::LoadFactoryPreset(int id, EffectSettings &settings) const
 {
+   // Issue 3441: Some factory presets of some effects do not reassign all
+   // controls.  So first put controls into a default state, not contaminated
+   // by previous importing or other loading of settings into this wrapper.
+   LoadPreset(FactoryDefaultsGroup(), settings);
+
    // Retrieve the list of factory presets
    CF_ptr<CFArrayRef> array;
    if (GetFixedSizeProperty(kAudioUnitProperty_FactoryPresets, array) ||

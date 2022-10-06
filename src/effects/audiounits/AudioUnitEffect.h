@@ -85,12 +85,6 @@ public:
    RegistryPaths GetFactoryPresets() const override;
    bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
 
-   unsigned GetAudioInCount() const override;
-   unsigned GetAudioOutCount() const override;
-
-   int GetMidiInCount() const override;
-   int GetMidiOutCount() const override;
-
    int ShowClientInterface(wxWindow &parent, wxDialog &dialog,
       EffectUIValidator *pValidator, bool forceModal) override;
 
@@ -143,10 +137,6 @@ private:
    const PluginPath mPath;
    const wxString mName;
    const wxString mVendor;
-
-   // Initialized in GetChannelCounts()
-   unsigned mAudioIns{ 2 };
-   unsigned mAudioOuts{ 2 };
 
    bool mInteractive{ false };
    bool mUseLatency{ true };

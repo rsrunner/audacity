@@ -176,14 +176,10 @@ bool IsBundledPlugin(const PluginDescriptor* plug)
 {
    if(IsDefaultPlugin(plug))
       return true;
-   auto applicationBundlePath = wxFileName(wxStandardPaths::Get().GetExecutablePath());
-#if __WXMAC__
-   //Remove MacOSX
-   applicationBundlePath.RemoveLastDir();
-#endif
+   auto applicationResourcePath = wxFileName(FileNames::ResourcesDir());
    auto pluginPath = wxFileName(plug->GetPath());
    pluginPath.MakeAbsolute();
-   return pluginPath.GetPath().StartsWith(applicationBundlePath.GetPath());
+   return pluginPath.GetPath().StartsWith(applicationResourcePath.GetPath());
 }
 
 auto MakeGroupsFilter(const EffectsMenuGroups& list) -> auto
@@ -279,8 +275,7 @@ void AddGroupedEffectMenuItems(
 
       groupNames.push_back( name );
       groupPlugs.push_back(plug->GetID());
-      groupFlags.push_back(
-         plug->IsEffectRealtime() ? realflags : FixBatchFlags( batchflags, plug ) );
+      groupFlags.push_back(FixBatchFlags( batchflags, plug ) );
    }
 
    if (groupNames.size() > 0)
@@ -343,8 +338,7 @@ void AddSortedEffectMenuItems(
       );
 
       groupPlugs.push_back(plug->GetID());
-      groupFlags.push_back(
-         plug->IsEffectRealtime() ? realflags : FixBatchFlags( batchflags, plug ) );
+      groupFlags.push_back(FixBatchFlags( batchflags, plug ) );
    }
 
    if (groupNames.size() > 0)
@@ -383,8 +377,7 @@ auto MakeAddGroupItems(const EffectsMenuGroups& list, CommandFlag batchflags, Co
                groupNames.push_back( name );
 
             groupPlugs.push_back(plug->GetID());
-            groupFlags.push_back(
-               plug->IsEffectRealtime() ? realflags : FixBatchFlags( batchflags, plug ) );
+            groupFlags.push_back(FixBatchFlags( batchflags, plug ) );
          }
 
          if (!groupNames.empty())
@@ -444,7 +437,7 @@ void DoManageRealtimeEffectsSidePanel(AudacityProject &project)
    if (projectWindow.IsEffectsPanelShown())
       projectWindow.HideEffectsPanel();
    else
-      projectWindow.ShowEffectsPanel(project, trackFocus.Get());
+      projectWindow.ShowEffectsPanel(trackFocus.Get(), true);
 }
 
 bool CompareEffectsByName(const PluginDescriptor *a, const PluginDescriptor *b)
@@ -572,13 +565,7 @@ MenuTable::BaseItemPtrs PopulateEffectsMenu(
       if(type == EffectTypeProcess)
       {
          static auto effectMenuDefaults = [] {
-            wxFileName path = wxStandardPaths::Get().GetExecutablePath();
-#if defined(__WXMAC__)
-            //remove MacOSX
-            path.RemoveLastDir();
-#endif
-            path.AppendDir("res");
-            path.SetFullName("effects_menu_defaults.xml");
+            wxFileName path = wxFileName(FileNames::ResourcesDir(), wxT("EffectsMenuDefaults.xml"));
             return LoadEffectsMenuGroups(path.GetFullPath());
          }();
          static auto groupsFilter = MakeGroupsFilter(effectMenuDefaults);
@@ -1126,10 +1113,9 @@ void AddEffectMenuItemGroup(
          {
             const PluginDescriptor *plug =
                PluginManager::Get().GetPlugin(plugs[i]);
-            wxString item = plug->GetPath();
             if( plug->GetPluginType() == PluginTypeEffect )
-               temp2.push_back( Command( item,
-                  Verbatim( item ),
+               temp2.push_back( Command( plug->GetID(),
+                  Verbatim( plug->GetPath() ),
                   FN(OnEffect),
                   flags[i],
                   CommandManager::Options{}
@@ -1149,11 +1135,7 @@ void AddEffectMenuItemGroup(
             PluginManager::Get().GetPlugin(plugs[i]);
          if( plug->GetPluginType() == PluginTypeEffect )
             pTable->push_back( Command(
-               // Call Debug() not MSGID() so that any concatenated "..." is
-               // included in the identifier, preserving old behavior, and
-               // avoiding the collision of the "Silence" command and the
-               // "Silence..." generator
-               names[i].Debug(), // names[i].MSGID(),
+               plug->GetID(),
                names[i],
                FN(OnEffect),
                flags[i],
@@ -1175,7 +1157,7 @@ void AddEffectMenuItemGroup(
             }
             // Done collecting
             table.push_back( Menu( wxEmptyString,
-               XXO("Plug-in %d to %d").Format( groupNdx + 1, end ),
+               XXO("Plugin %d to %d").Format( groupNdx + 1, end ),
                std::move( temp1 )
             ) );
             items = max;
@@ -1315,7 +1297,7 @@ BaseItemSharedPtr EffectMenu()
 
       Section( "RealtimeEffects",
          Command ( wxT("AddRealtimeEffects"), XXO("Add Realtime Effects"),
-            FN(OnAddRealtimeEffects),  HasTrackFocusFlag() )
+            FN(OnAddRealtimeEffects),  HasTrackFocusFlag(), wxT("E") )
       ),
 
       Section( "RepeatLast",
@@ -1463,7 +1445,7 @@ BaseItemSharedPtr ToolsMenu()
          }
       ),
 
-      Command( wxT("ManageMacros"), XXO("&Macros..."),
+      Command( wxT("ManageMacros"), XXO("&Macro Manager"),
             FN(OnManageMacros), AudioIONotBusyFlag() ),
 
          Menu( wxT("Macros"), XXO("&Apply Macro"),

@@ -168,6 +168,20 @@ size_t EffectInstance::GetTailSize() const
    return 0;
 }
 
+void EffectInstance::AssignSettings(EffectSettings &dst, EffectSettings &&src)
+   const
+{
+   dst = src;
+}
+
+auto EffectInstance::GetLatency(const EffectSettings &, double) const
+   -> SampleCount
+{
+   return 0;
+}
+
+EffectInstanceEx::~EffectInstanceEx() = default;
+
 EffectInstanceWithBlockSize::~EffectInstanceWithBlockSize() = default;
 
 size_t EffectInstanceWithBlockSize::GetBlockSize() const
@@ -181,16 +195,6 @@ size_t EffectInstanceWithBlockSize::SetBlockSize(size_t maxBlockSize)
 }
 
 EffectInstanceFactory::~EffectInstanceFactory() = default;
-
-int EffectInstanceFactory::GetMidiInCount() const
-{
-   return 0;
-}
-
-int EffectInstanceFactory::GetMidiOutCount() const
-{
-   return 0;
-}
 
 EffectUIValidator::EffectUIValidator(
    EffectUIClientInterface &effect, EffectSettingsAccess &access)
@@ -208,6 +212,10 @@ bool EffectUIValidator::UpdateUI()
 bool EffectUIValidator::IsGraphicalUI()
 {
    return false;
+}
+
+void EffectUIValidator::Disconnect()
+{
 }
 
 void EffectUIValidator::OnClose()

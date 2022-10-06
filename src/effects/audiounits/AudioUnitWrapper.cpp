@@ -17,8 +17,10 @@
 #include "EffectInterface.h"
 #include "Internat.h"
 #include "ModuleManager.h"
+#include "PluginProvider.h"
 
 #include <wx/osx/core/private.h>
+#include <wx/log.h>
 
 AudioUnitEffectSettings &
 AudioUnitWrapper::GetSettings(EffectSettings &settings) {
@@ -124,18 +126,19 @@ std::optional<AudioUnitParameterID>
 AudioUnitWrapper::ParameterInfo::ParseKey(const wxString &key)
 {
    // This is not a complete validation of the format of the key
-   const auto npos = wxString::npos;
-   constexpr char chars[]{ idSep, idBeg, '0' };
    // Scan left for , or <
-   if (auto index = key.find_last_of(chars); index != npos) {
-      ++index;
+   if (const auto rend = key.rend(), riter = std::find_if(key.rbegin(), rend,
+      [](wxChar c) { return c == idBeg || c == idSep; })
+      ; riter != rend
+   ) {
       // Scan right for >
-      if (const auto index2 = key.find(idEnd, index)
-         ; index2 != npos && index2 > index
+      if (const auto end = key.end(), left = riter.base(), // one right of riter
+         right = std::find(left, end, idEnd)
+         ; left != right && right != end
       ){
-         // Interpret as hex
+         // Interpret character range as hex
          if (long value{}
-             ; key.substr(index, index2 - index).ToLong(&value, 16))
+             ; wxString{left, right}.ToLong(&value, 16))
             return value;
       }
    }
@@ -315,5 +318,74 @@ AudioUnitWrapper::MakeBlob(const AudioUnitEffectSettings &settings,
       message = XO("XML data is empty after conversion");
 
    return { move(data), message };
+}
+
+bool AudioUnitWrapper::SetRateAndChannels(
+   double sampleRate, const wxString &identifier)
+{
+   AudioUnitUtils::StreamBasicDescription streamFormat{
+      // Float64 mSampleRate;
+      sampleRate,
+
+      // UInt32  mFormatID;
+      kAudioFormatLinearPCM,
+
+      // UInt32  mFormatFlags;
+      (kAudioFormatFlagsNativeFloatPacked |
+          kAudioFormatFlagIsNonInterleaved),
+
+      // UInt32  mBytesPerPacket;
+      sizeof(float),
+
+      // UInt32  mFramesPerPacket;
+      1,
+
+      // UInt32  mBytesPerFrame;
+      sizeof(float),
+
+      // UInt32  mChannelsPerFrame;
+      0,
+
+      // UInt32  mBitsPerChannel;
+      sizeof(float) * 8,
+   };
+
+   unsigned one = 1u;
+   const struct Info{
+      unsigned &nChannels;
+      AudioUnitScope scope;
+      const char *const msg; // used only in log messages
+   } infos[]{
+      { one, kAudioUnitScope_Global, "global" },
+      { mAudioIns, kAudioUnitScope_Input, "input" },
+      { mAudioOuts, kAudioUnitScope_Output, "output" },
+   };
+   for (const auto &[nChannels, scope, msg] : infos) {
+      if (nChannels) {
+         if (SetProperty(kAudioUnitProperty_SampleRate, sampleRate, scope)) {
+            wxLogError("%ls Didn't accept sample rate on %s\n",
+               // Exposing internal name only in logging
+               identifier.wx_str(), msg);
+            return false;
+         }
+         if (scope != kAudioUnitScope_Global) {
+            bool failed = true;
+            ++nChannels;
+            do {
+               --nChannels;
+               streamFormat.mChannelsPerFrame = nChannels;
+               failed = SetProperty(kAudioUnitProperty_StreamFormat,
+                  streamFormat, scope);
+            } while(failed && nChannels > 0);
+            if (failed) {
+               wxLogError("%ls didn't accept stream format on %s\n",
+                  // Exposing internal name only in logging
+                  identifier.wx_str(), msg);
+               return false;
+            }
+         }
+      }
+   }
+   return true;
 }
 #endif

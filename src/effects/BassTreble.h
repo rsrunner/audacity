@@ -58,7 +58,7 @@ public:
    unsigned GetAudioInCount() const override;
    unsigned GetAudioOutCount() const override;
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
    size_t ProcessBlock(EffectSettings &settings,
       const float *const *inBlock, float *const *outBlock, size_t blockLen)
       override;
@@ -77,6 +77,7 @@ public:
       ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
    override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
+   bool TransferDataFromWindow(EffectSettings &settings) override;
 
    bool CheckWhetherSkipEffect(const EffectSettings &settings) const override;
 

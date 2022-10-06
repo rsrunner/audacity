@@ -35,6 +35,9 @@ class LV2Validator;
 
 class LV2Effect final : public PerTrackEffect
 {
+
+   friend class LV2PluginValidator;
+
 public:
    LV2Effect(const LilvPlugin &plug);
    virtual ~LV2Effect();
@@ -68,12 +71,6 @@ public:
 
    RegistryPaths GetFactoryPresets() const override;
    bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
-
-   unsigned GetAudioInCount() const override;
-   unsigned GetAudioOutCount() const override;
-
-   int GetMidiInCount() const override;
-   int GetMidiOutCount() const override;
 
    int ShowClientInterface(wxWindow &parent, wxDialog &dialog,
       EffectUIValidator *pValidator, bool forceModal) override;

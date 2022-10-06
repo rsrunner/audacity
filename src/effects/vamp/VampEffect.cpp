@@ -75,8 +75,8 @@ VampEffect::VampEffect(std::unique_ptr<Vamp::Plugin> &&plugin,
    mHasParameters(hasParameters),
    mRate(0)
 {
-   mKey = mPath.BeforeLast(wxT('/')).ToUTF8();
-   mName = mPath.AfterLast(wxT('/'));
+   mKey = mPath.BeforeFirst(wxT('/')).ToUTF8();
+   mName = mPath.AfterFirst(wxT('/'));
 }
 
 VampEffect::~VampEffect()
@@ -690,7 +690,23 @@ std::unique_ptr<EffectUIValidator> VampEffect::PopulateOrExchange(
 
 bool VampEffect::TransferDataToWindow(const EffectSettings &)
 {
+   if (!mUIParent->TransferDataToWindow())
+   {
+      return false;
+   }
+
    UpdateFromPlugin();
+
+   return true;
+}
+
+bool VampEffect::TransferDataFromWindow(EffectSettings &)
+{
+   if (!mUIParent->Validate() || !mUIParent->TransferDataFromWindow())
+   {
+      return false;
+   }
+
    return true;
 }
 

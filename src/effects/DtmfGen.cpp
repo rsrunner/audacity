@@ -119,11 +119,6 @@ EffectType EffectDtmf::GetType() const
    return EffectTypeGenerate;
 }
 
-unsigned EffectDtmf::GetAudioOutCount() const
-{
-   return 1;
-}
-
 //! Temporary state of the computation
 struct EffectDtmf::Instance
    : PerTrackEffect::Instance
@@ -135,10 +130,20 @@ struct EffectDtmf::Instance
    {}
 
    bool ProcessInitialize(EffectSettings &settings, double sampleRate,
-      sampleCount totalLen, ChannelNames chanMap) override;
+      ChannelNames chanMap) override;
    size_t ProcessBlock(EffectSettings &settings,
       const float *const *inBlock, float *const *outBlock, size_t blockLen)
    override;
+
+   unsigned GetAudioInCount() const override
+   {
+      return 0;
+   }
+
+   unsigned GetAudioOutCount() const override
+   {
+      return 1;
+   }
 
    const double mT0;
    double mSampleRate{};
@@ -154,7 +159,7 @@ struct EffectDtmf::Instance
 };
 
 bool EffectDtmf::Instance::ProcessInitialize(
-   EffectSettings &settings, double sampleRate, sampleCount, ChannelNames)
+   EffectSettings &settings, double sampleRate, ChannelNames)
 {
    mSampleRate = sampleRate;
 
@@ -262,6 +267,7 @@ size_t EffectDtmf::Instance::ProcessBlock(EffectSettings &settings,
       if (isTone)
       {
          // generate the tone and append
+         assert(curSeqPos < dtmfSettings.dtmfNTones) ;
          MakeDtmfTone(buffer, len, mSampleRate,
             dtmfSettings.dtmfSequence[curSeqPos], curTonePos, numSamplesTone,
             dtmfSettings.dtmfAmplitude);

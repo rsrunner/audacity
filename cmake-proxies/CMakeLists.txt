@@ -27,6 +27,7 @@ if(${_OPT}has_vst3)
         vst3sdk vst3sdk/3.7.3
         REQUIRED
         HAS_ONLY_DEBUG_RELEASE
+        ALLOW_FIND_PACKAGE
     )
 endif()
 
@@ -278,7 +279,7 @@ if( NOT CMAKE_SYSTEM_NAME MATCHES "Darwin|Windows")
    )
 endif()
 
-if( ${_OPT}has_sentry_reporting )
+if( ${_OPT}has_sentry_reporting OR ${_OPT}has_audiocom_upload )
    add_conan_lib(
       RapidJSON
       rapidjson/1.1.0

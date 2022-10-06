@@ -96,12 +96,6 @@ public:
    RegistryPaths GetFactoryPresets() const override;
    bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
 
-   unsigned GetAudioInCount() const override;
-   unsigned GetAudioOutCount() const override;
-
-   int GetMidiInCount() const override;
-   int GetMidiOutCount() const override;
-
    int ShowClientInterface(wxWindow &parent, wxDialog &dialog,
       EffectUIValidator *pValidator, bool forceModal) override;
    bool InitializePlugin();
@@ -205,8 +199,8 @@ public:
       const PluginPath & path, TranslatableString &errMsg,
       const RegistrationCallback &callback)
          override;
-
-   bool IsPluginValid(const PluginPath & path, bool bFast) override;
+   
+   bool CheckPluginExist(const PluginPath& path) const override;
 
    std::unique_ptr<ComponentInterface>
       LoadPlugin(const PluginPath & path) override;

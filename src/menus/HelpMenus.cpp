@@ -35,6 +35,10 @@
 #include "update/UpdateManager.h"
 #endif
 
+#ifdef HAS_AUDIOCOM_UPLOAD
+#include "cloud/audiocom/LinkAccountDialog.h"
+#endif
+
 // private helper classes and functions
 namespace
 {
@@ -396,6 +400,14 @@ void OnCheckForUpdates(const CommandContext &WXUNUSED(context))
 }
 #endif
 
+#ifdef HAS_AUDIOCOM_UPLOAD
+void OnLinkAccount(const CommandContext&)
+{
+   cloud::audiocom::LinkAccountDialog dialog;
+   dialog.ShowModal();
+}
+#endif
+
 void OnAbout(const CommandContext &context)
 {
 #ifdef __WXMAC__
@@ -524,13 +536,18 @@ BaseItemSharedPtr HelpMenu()
 #else
       ,
 #endif
+#ifdef HAS_AUDIOCOM_UPLOAD
+         Command(
+            wxT("LinkAccount"), XXO("L&ink audio.com account..."),
+            FN(OnLinkAccount), AlwaysEnabledFlag),
+#endif
          // DA: Does not fully support update checking.
    #if !defined(EXPERIMENTAL_DA) && defined(HAVE_UPDATES_CHECK)
          Command( wxT("Updates"), XXO("&Check for Updates..."),
             FN(OnCheckForUpdates),
             AlwaysEnabledFlag ),
    #endif
-         Command( wxT("About"), XXO("&About Audacity..."), FN(OnAbout),
+         Command( wxT("About"), XXO("&About Audacity"), FN(OnAbout),
             AlwaysEnabledFlag )
       )
    ) ) };

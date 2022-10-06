@@ -102,7 +102,7 @@ unsigned EffectNoise::GetAudioOutCount() const
 }
 
 bool EffectNoise::ProcessInitialize(EffectSettings &,
-   double sampleRate, sampleCount, ChannelNames)
+   double sampleRate, ChannelNames)
 {
    mSampleRate = sampleRate;
    return true;
@@ -211,13 +211,22 @@ std::unique_ptr<EffectUIValidator> EffectNoise::PopulateOrExchange(
 
 bool EffectNoise::TransferDataToWindow(const EffectSettings &settings)
 {
-   mNoiseDurationT->SetValue(settings.extra.GetDuration());
+   if (!mUIParent->TransferDataToWindow())
+   {
+      return false;
+   }
 
+   mNoiseDurationT->SetValue(settings.extra.GetDuration());
    return true;
 }
 
 bool EffectNoise::TransferDataFromWindow(EffectSettings &settings)
 {
+   if (!mUIParent->Validate() || !mUIParent->TransferDataFromWindow())
+   {
+      return false;
+   }
+
    settings.extra.SetDuration(mNoiseDurationT->GetValue());
    return true;
 }
