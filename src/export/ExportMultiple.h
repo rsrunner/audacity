@@ -13,6 +13,8 @@
 
 #include "Export.h"
 #include "wxFileNameWrapper.h" // member variable
+#include "Track.h" // need those for mLabels
+#include "LabelTrack.h"
 
 class wxButton;
 class wxCheckBox;
@@ -110,8 +112,7 @@ private:
    AudacityProject *mProject;
    TrackList *mTracks;           /**< The list of tracks in the project that is
                                    being exported */
-   const LabelTrack *mLabels;
-   TrackIterRange<const LabelTrack> mLabelTracks;
+   TrackIterRange<const LabelTrack> mLabels;
    int mNumLabels;
    int mNumWaveTracks;
 

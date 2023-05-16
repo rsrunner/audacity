@@ -593,7 +593,7 @@ BaseItemSharedPtr FileMenu()
                AudioIONotBusyFlag() | LabelTracksExistFlag() ),
 
             Command(wxT("ExportLabelsEx"), XXO("Export Multiple Labels..."),
-               FN(OnExportLabelsEx),
+               OnExportLabelsEx,
                AudioIONotBusyFlag() | LabelTracksExistFlag()),
 
             // Enable Export audio commands only when there are audio tracks.
