@@ -6,8 +6,9 @@
 #include "ProjectHistory.h"
 #include "../ProjectWindow.h"
 #include "../ProjectWindows.h"
+#include "../RealtimeEffectPanel.h"
 #include "Track.h"
-#include "../SelectionState.h"
+#include "SelectionState.h"
 #include "../TrackPanel.h"
 #include "../TrackPanelAx.h"
 #include "../commands/CommandContext.h"
@@ -35,7 +36,7 @@ void NextOrPrevFrame(AudacityProject &project, bool forward)
    if(!ToolManager::Get(project).GetTopDock()->GetChildren().IsEmpty())
       seq.push_back(ProjectWindow::Get( project ).GetTopPanel());
    seq.push_back(&TrackPanel::Get( project ));
-   seq.push_back(ProjectWindow::Get(project).GetEffectsWindow());
+   seq.push_back(&RealtimeEffectPanel::Get(project));
    if(!ToolManager::Get( project ).GetBotDock()->GetChildren().IsEmpty())
       seq.push_back(ToolManager::Get( project ).GetBotDock());
 
@@ -565,7 +566,7 @@ BaseItemSharedPtr ExtraGlobalCommands()
 
 AttachedItem sAttachment2{
    wxT("Optional/Extra/Part2"),
-   Shared( ExtraGlobalCommands() )
+   Indirect(ExtraGlobalCommands())
 };
 
 BaseItemSharedPtr ExtraFocusMenu()
@@ -603,7 +604,7 @@ BaseItemSharedPtr ExtraFocusMenu()
 
 AttachedItem sAttachment3{
    wxT("Optional/Extra/Part2"),
-   Shared( ExtraFocusMenu() )
+   Indirect(ExtraFocusMenu())
 };
 
 }

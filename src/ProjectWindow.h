@@ -24,6 +24,7 @@ class wxScrollBar;
 class wxPanel;
 class wxSplitterWindow;
 class RealtimeEffectPanel;
+enum class ProjectFileIOMessage : int;
 
 class ProjectWindow;
 void InitProjectWindow( ProjectWindow &window );
@@ -65,12 +66,6 @@ public:
    void Reset();
 
    /**
-    * \brief Effect window contains list off effects assigned to
-    * a selected track.
-    * \return Pointer to an effects side-panel window (not null)
-    */
-   wxWindow* GetEffectsWindow() noexcept;
-   /**
     * \brief Track list window is the parent container for TrackPanel
     * \return Pointer to a track list window (not null)
     */
@@ -80,7 +75,7 @@ public:
     * track list windows
     * \return Pointer to a container window (not null)
     */
-   wxWindow* GetContainerWindow() noexcept;
+   wxSplitterWindow* GetContainerWindow() noexcept;
    /**
     * \brief Top panel contains project-related controls and tools.
     * \return Pointer to a top panel window (not null)
@@ -137,10 +132,6 @@ public:
    double GetZoomOfToFit() const;
    void DoZoomFit();
    
-   void ShowEffectsPanel(Track* track = nullptr, bool focus = false);
-   void HideEffectsPanel();
-   bool IsEffectsPanelShown();
-
    void ApplyUpdatedTheme();
 
    // Scrollbars
@@ -211,6 +202,7 @@ public:
    void OnUndoPushedModified();
    void OnUndoRedo();
    void OnUndoReset();
+   void OnProjectTitleChange(ProjectFileIOMessage);
 
    bool mbInitializingScrollbar{ false };
 
@@ -219,7 +211,6 @@ private:
 
    wxPanel *mTopPanel{};
    wxSplitterWindow* mContainerWindow;
-   RealtimeEffectPanel* mEffectsWindow{};
    wxWindow* mTrackListWindow{};
    
    wxScrollBar *mHsbar{};
@@ -239,10 +230,11 @@ private:
 private:
 
    Observer::Subscription mUndoSubscription
-      , mThemeChangeSubscription;
+      , mThemeChangeSubscription
+      , mTitleChangeSubcription
+      , mSnappingChangedSubscription
+   ;
    std::unique_ptr<PlaybackScroller> mPlaybackScroller;
-
-   Observer::Subscription mFocusChangeSubscription;
 
    DECLARE_EVENT_TABLE()
 };

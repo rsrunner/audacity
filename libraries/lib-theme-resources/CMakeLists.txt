@@ -8,8 +8,13 @@ set( IMAGE_LIST
    AudacityLogo48x48.png
    BandWidthCursor.png
    BottomFrequencyCursor.png
+   Cogwheel.png
    Colors.txt
+   Copy.png
+   CopyDisabled.png
    CrosshairCursor.png
+   Cut.png
+   CutDisabled.png
    CutPreview.png
    CutPreviewDisabled.png
    DisabledCursor.png
@@ -64,6 +69,8 @@ set( IMAGE_LIST
    Multi.png
    Options.png
    OptionsDisabled.png
+   Paste.png
+   PasteDisabled.png
    Pause.png
    PauseDisabled.png
    Play.png
@@ -189,8 +196,6 @@ set( SOURCES
 )
 set( LIBRARIES
    lib-theme-interface
-   PRIVATE
-   wxwidgets::wxwidgets
  )
 audacity_library( lib-theme-resources "${SOURCES}" "${LIBRARIES}"
    "" ""

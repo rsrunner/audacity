@@ -11,14 +11,8 @@
 #ifndef __AUDACITY_ZOOM_INFO__
 #define __AUDACITY_ZOOM_INFO__
 
-#include "ClientData.h" // to inherit
-#include "Prefs.h" // to inherit
-
-#ifdef __GNUC__
-#define CONST
-#else
-#define CONST const
-#endif
+#include <cstdint>
+#include <vector>
 
 class AudacityProject;
 
@@ -42,18 +36,16 @@ enum : int {
 class SCREEN_GEOMETRY_API ZoomInfo /* not final */
    // Note that ViewInfo inherits from ZoomInfo but there are no virtual functions.
    // That's okay if we pass always by reference and never copy, suffering "slicing."
-   : public ClientData::Base
-   , protected PrefsListener
 {
 public:
+   using int64 = std::int64_t;
+
    ZoomInfo(double start, double pixelsPerSecond);
    ~ZoomInfo();
 
    // Be sure we don't slice
    ZoomInfo(const ZoomInfo&) PROHIBITED;
    ZoomInfo& operator= (const ZoomInfo&) PROHIBITED;
-
-   void UpdatePrefs() override;
 
    int vpos;                    // vertical scroll pos
 
@@ -63,14 +55,12 @@ protected:
    double zoom;                 // pixels per second
 
 public:
-   float dBr;                   // decibel scale range
-
    // do NOT use this once to convert a pixel width to a duration!
    // Instead, call twice to convert start and end times,
    // and take the difference.
    // origin specifies the pixel corresponding to time h
-   double PositionToTime(wxInt64 position,
-      wxInt64 origin = 0
+   double PositionToTime(int64 position,
+      int64 origin = 0
       , bool ignoreFisheye = false
    ) const;
 
@@ -78,8 +68,8 @@ public:
    // Instead, call twice to convert start and end positions,
    // and take the difference.
    // origin specifies the pixel corresponding to time h
-   wxInt64 TimeToPosition(double time,
-      wxInt64 origin = 0
+   int64 TimeToPosition(double time,
+      int64 origin = 0
       , bool ignoreFisheye = false
    ) const;
 
@@ -87,7 +77,7 @@ public:
    // You should prefer to call TimeToPosition twice, for endpoints, and take the difference!
    double TimeRangeToPixelWidth(double timeRange) const;
 
-   double OffsetTimeByPixels(double time, wxInt64 offset, bool ignoreFisheye = false) const
+   double OffsetTimeByPixels(double time, int64 offset, bool ignoreFisheye = false) const
    {
       return PositionToTime(offset + TimeToPosition(time, ignoreFisheye), ignoreFisheye);
    }
@@ -139,8 +129,8 @@ public:
    void ZoomBy(double multiplier);
 
    struct Interval {
-      CONST wxInt64 position; CONST double averageZoom; CONST bool inFisheye;
-      Interval(wxInt64 p, double z, bool i)
+      int64 position; double averageZoom; bool inFisheye;
+      Interval(int64 p, double z, bool i)
          : position(p), averageZoom(z), inFisheye(i) {}
    };
    typedef std::vector<Interval> Intervals;
@@ -153,7 +143,7 @@ public:
    // first entry equals origin.
    // @param origin specifies the pixel position corresponding to time ViewInfo::h.
    void FindIntervals
-      (double rate, Intervals &results, wxInt64 width, wxInt64 origin = 0) const;
+      (double rate, Intervals &results, int64 width, int64 origin = 0) const;
 
    enum FisheyeState {
       HIDDEN,
@@ -166,15 +156,15 @@ public:
 
    // Return true if the mouse position is anywhere in the fisheye
    // origin specifies the pixel corresponding to time h
-   bool InFisheye(wxInt64 /*position*/, wxInt64 WXUNUSED(origin = 0)) const
+   bool InFisheye(int64 /*position*/, int64 = 0) const
    {return false;} // stub
 
    // These accessors ignore the fisheye hiding state.
    // Inclusive:
-   wxInt64 GetFisheyeLeftBoundary(wxInt64 WXUNUSED(origin = 0)) const
+   int64 GetFisheyeLeftBoundary(int64 = 0) const
    {return 0;} // stub
    // Exclusive:
-   wxInt64 GetFisheyeRightBoundary(wxInt64 WXUNUSED(origin = 0)) const
+   int64 GetFisheyeRightBoundary(int64 = 0) const
    {return 0;} // stub
 
    int mWidth{ 0 };

@@ -16,8 +16,8 @@
 #define __AUDACITY_EFFECT_AMPLIFY__
 
 #include "StatefulPerTrackEffect.h"
-#include "../ShuttleAutomation.h"
-
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class wxSlider;
 class wxCheckBox;
@@ -43,8 +43,9 @@ public:
    // EffectDefinitionInterface implementation
 
    EffectType GetType() const override;
-   bool LoadFactoryDefaults(EffectSettings &settings) const override;
-   bool DoLoadFactoryDefaults();
+   OptionalMessage LoadFactoryDefaults(EffectSettings &settings)
+      const override;
+   OptionalMessage DoLoadFactoryDefaults(EffectSettings &settings);
 
    unsigned GetAudioInCount() const override;
    unsigned GetAudioOutCount() const override;
@@ -55,10 +56,10 @@ public:
    // Effect implementation
 
    bool Init() override;
-   void Preview(EffectSettingsAccess &access, bool dryOnly) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::any BeginPreview(const EffectSettings &settings) override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -74,6 +75,8 @@ private:
    void CheckClip();
 
 private:
+   wxWeakRef<wxWindow> mUIParent{};
+
    double mPeak      = 1.0;
 
    double mRatio     = 1.0;

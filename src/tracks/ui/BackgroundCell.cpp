@@ -15,7 +15,7 @@ Paul Licameli split from TrackPanel.cpp
 #include "../../HitTestResult.h"
 #include "Project.h"
 #include "../../RefreshCode.h"
-#include "../../SelectionState.h"
+#include "SelectionState.h"
 #include "Track.h"
 #include "../../TrackArtist.h"
 #include "../../TrackPanel.h"
@@ -26,7 +26,6 @@ Paul Licameli split from TrackPanel.cpp
 #include "ViewInfo.h"
 
 #include <wx/cursor.h>
-#include <wx/event.h>
 
 // Define this, just so the click to deselect can dispatch here
 // This handle class, unlike most, doesn't associate with any particular cell.

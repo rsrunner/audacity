@@ -15,26 +15,28 @@
 
 
 #include "ChangeSpeed.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <math.h>
 
 #include <wx/choice.h>
-#include <wx/intl.h>
 #include <wx/slider.h>
 
 #include "ConfigInterface.h"
 #include "../LabelTrack.h"
 #include "Prefs.h"
 #include "Resample.h"
-#include "../ShuttleGui.h"
-#include "../SyncLock.h"
+#include "ShuttleGui.h"
+#include "SyncLock.h"
 #include "../widgets/NumericTextCtrl.h"
 #include "../widgets/valnum.h"
 
 #include "TimeWarper.h"
-#include "../WaveClip.h"
-#include "../WaveTrack.h"
+#include "WaveClip.h"
+#include "WaveTrack.h"
+
+#include "NumericConverterFormats.h"
 
 enum
 {
@@ -104,7 +106,7 @@ EffectChangeSpeed::EffectChangeSpeed()
    mToVinyl = kVinyl_33AndAThird;
    mFromLength = 0.0;
    mToLength = 0.0;
-   mFormat = NumericConverter::DefaultSelectionFormat();
+   mFormat = NumericConverterFormats::DefaultSelectionFormat();
    mbLoopDetect = false;
 
    SetLinearEffectFlag(true);
@@ -139,16 +141,17 @@ EffectType EffectChangeSpeed::GetType() const
    return EffectTypeProcess;
 }
 
-bool EffectChangeSpeed::LoadFactoryDefaults(EffectSettings &settings) const
+OptionalMessage EffectChangeSpeed::LoadFactoryDefaults(EffectSettings &settings) const
 {
    // To do: externalize state so const_cast isn't needed
    return const_cast<EffectChangeSpeed&>(*this).DoLoadFactoryDefaults(settings);
 }
 
-bool EffectChangeSpeed::DoLoadFactoryDefaults(EffectSettings &settings)
+OptionalMessage
+EffectChangeSpeed::DoLoadFactoryDefaults(EffectSettings &settings)
 {
    mFromVinyl = kVinyl_33AndAThird;
-   mFormat = NumericConverter::DefaultSelectionFormat();
+   mFormat = NumericConverterFormats::DefaultSelectionFormat();
 
    return Effect::LoadFactoryDefaults(settings);
 }
@@ -237,16 +240,20 @@ bool EffectChangeSpeed::Process(EffectInstance &, EffectSettings &)
    return bGoodResult;
 }
 
-std::unique_ptr<EffectUIValidator> EffectChangeSpeed::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectChangeSpeed::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
+
    {
       wxString formatId;
       GetConfig(GetDefinition(), PluginSettings::Private,
          CurrentSettingsGroup(),
          wxT("TimeFormat"), formatId, mFormat.Internal());
-      mFormat = NumericConverter::LookupFormat(
-         NumericConverter::TIME, formatId );
+      mFormat = NumericConverterFormats::Lookup(
+         FormatterContext::SampleRateContext(mProjectRate),
+         NumericConverterType_TIME(), formatId);
    }
    GetConfig(GetDefinition(), PluginSettings::Private,
       CurrentSettingsGroup(),
@@ -324,11 +331,11 @@ std::unique_ptr<EffectUIValidator> EffectChangeSpeed::PopulateOrExchange(
             S.AddPrompt(XXO("C&urrent Length:"));
 
             mpFromLengthCtrl = safenew
-                  NumericTextCtrl(S.GetParent(), wxID_ANY,
-                                 NumericConverter::TIME,
+                  NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                                 S.GetParent(), wxID_ANY,
+                                 NumericConverterType_TIME(),
                                  mFormat,
                                  mFromLength,
-                                 mProjectRate,
                                  NumericTextCtrl::Options{}
                                   .ReadOnly(true)
                                   .MenuEnabled(false));
@@ -342,11 +349,11 @@ std::unique_ptr<EffectUIValidator> EffectChangeSpeed::PopulateOrExchange(
             S.AddPrompt(XXO("&New Length:"));
 
             mpToLengthCtrl = safenew
-                  NumericTextCtrl(S.GetParent(), ID_ToLength,
-                                 NumericConverter::TIME,
+                  NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                                 S.GetParent(), ID_ToLength,
+                                 NumericConverterType_TIME(),
                                  mFormat,
-                                 mToLength,
-                                 mProjectRate);
+                                 mToLength);
 
             /* i18n-hint: changing speed of audio "from" one value "to" another */
             S.Name(XC("to", "change speed"))
@@ -440,7 +447,7 @@ bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
    // initialization, per examples of Mixer::Mixer and
    // EffectSoundTouch::ProcessOne
 
-   
+
    auto outputTrack = track->EmptyCopy();
 
    //Get the length of the selection (as double). len is
@@ -671,8 +678,9 @@ void EffectChangeSpeed::OnTimeCtrl_ToLength(wxCommandEvent & WXUNUSED(evt))
 
 void EffectChangeSpeed::OnTimeCtrlUpdate(wxCommandEvent & evt)
 {
-   mFormat = NumericConverter::LookupFormat(
-      NumericConverter::TIME, evt.GetString() );
+   mFormat = NumericConverterFormats::Lookup(
+      FormatterContext::SampleRateContext(mProjectRate),
+      NumericConverterType_TIME(), evt.GetString());
 
    mpFromLengthCtrl->SetFormatName(mFormat);
    // Update From/To Length controls (precision has changed).
@@ -781,5 +789,6 @@ void EffectChangeSpeed::Update_TimeCtrl_ToLength()
 void EffectChangeSpeed::UpdateUI()
 // Disable OK and Preview if not in sensible range.
 {
-   EnableApply(m_PercentChange >= Percentage.min && m_PercentChange <= Percentage.max);
+   EffectEditor::EnableApply(mUIParent,
+      m_PercentChange >= Percentage.min && m_PercentChange <= Percentage.max);
 }

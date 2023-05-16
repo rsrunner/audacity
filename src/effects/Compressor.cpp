@@ -23,9 +23,8 @@
 \brief Panel used within the EffectCompressor for EffectCompressor.
 
 *//*******************************************************************/
-
-
 #include "Compressor.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <math.h>
@@ -33,18 +32,20 @@
 #include <wx/brush.h>
 #include <wx/checkbox.h>
 #include <wx/dcclient.h>
-#include <wx/intl.h>
 #include <wx/slider.h>
 #include <wx/stattext.h>
 
 #include "AColor.h"
 #include "Prefs.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "Theme.h"
 #include "float_cast.h"
+#include "../widgets/LinearUpdater.h"
 #include "../widgets/Ruler.h"
+#include "../widgets/LinearDBFormat.h"
+#include "../widgets/LinearUpdater.h"
 
-#include "../WaveTrack.h"
+#include "WaveTrack.h"
 #include "AllThemeResources.h"
 
 enum
@@ -156,9 +157,11 @@ TranslatableString RatioLabelFormat( int sliderValue, double value )
 
 }
 
-std::unique_ptr<EffectUIValidator> EffectCompressor::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectCompressor::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    S.SetBorder(5);
 
    S.StartHorizontalLay(wxEXPAND, true);
@@ -649,19 +652,17 @@ void EffectCompressorPanel::OnPaint(wxPaintEvent & WXUNUSED(evt))
    int w = 0;
    int h = 0;
 
-   Ruler vRuler;
+   Ruler vRuler{ LinearUpdater::Instance(), LinearDBFormat::Instance() };
    vRuler.SetBounds(0, 0, width, height);
    vRuler.SetOrientation(wxVERTICAL);
    vRuler.SetRange(0, -rangeDB);
-   vRuler.SetFormat(Ruler::LinearDBFormat);
    vRuler.SetUnits(XO("dB"));
    vRuler.GetMaxSize(&w, NULL);
 
-   Ruler hRuler;
+   Ruler hRuler{ LinearUpdater::Instance(), LinearDBFormat::Instance() };
    hRuler.SetBounds(0, 0, width, height);
    hRuler.SetOrientation(wxHORIZONTAL);
    hRuler.SetRange(-rangeDB, 0);
-   hRuler.SetFormat(Ruler::LinearDBFormat);
    hRuler.SetUnits(XO("dB"));
    hRuler.SetFlip(true);
    hRuler.GetMaxSize(NULL, &h);

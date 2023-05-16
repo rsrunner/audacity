@@ -13,6 +13,8 @@
 #include <wx/sizer.h>
 #include <wx/stattext.h>
 
+#include <algorithm>
+
 #if wxUSE_TOOLTIPS
 #include <wx/tooltip.h>
 #endif
@@ -33,8 +35,13 @@ IMPLEMENT_CLASS(cloud::ShareAudioToolbar, ToolBar);
 
 namespace cloud
 {
+Identifier ShareAudioToolbar::ID()
+{
+   return wxT("Share Audio");
+}
+
 ShareAudioToolbar::ShareAudioToolbar(AudacityProject& project)
-    : ToolBar(project, ShareAudioBarID, XO("Share Audio"), wxT("Share Audio"))
+    : ToolBar(project, XO("Share Audio"), ID())
 {
 }
 
@@ -46,7 +53,7 @@ ShareAudioToolbar& ShareAudioToolbar::Get(AudacityProject& project)
 {
    auto& toolManager = ToolManager::Get(project);
    return *static_cast<ShareAudioToolbar*>(
-      toolManager.GetToolBar(ShareAudioBarID));
+      toolManager.GetToolBar(ID()));
 }
 
 const ShareAudioToolbar& ShareAudioToolbar::Get(const AudacityProject& project)
@@ -74,7 +81,7 @@ void ShareAudioToolbar::RegenerateTooltips()
       switch (iWinID)
       {
       case ID_SHARE_AUDIO_BUTTON:
-         name = wxT("Share Audio");
+         name = ID();
          break;
       }
 
@@ -89,6 +96,7 @@ void ShareAudioToolbar::RegenerateTooltips()
 
 void ShareAudioToolbar::Populate()
 {
+   MakeButtonBackgroundsSmall();
    SetBackgroundColour(theTheme.Colour(clrMedium));
    MakeShareAudioButton();
 
@@ -121,7 +129,7 @@ void ShareAudioToolbar::EnableDisableButtons()
       gAudioIO->IsStreamActive() && !gAudioIO->IsMonitoring();
 
    bool hasAudio = false;
-   
+
    for (const auto& track : TrackList::Get(mProject).Leaders<PlayableTrack>())
    {
       if (track->GetStartTime() != track->GetEndTime())
@@ -150,49 +158,16 @@ void ShareAudioToolbar::ReCreateButtons()
 
 void ShareAudioToolbar::MakeShareAudioButton()
 {
-   bool bUseAqua = false;
-
-#ifdef EXPERIMENTAL_THEME_PREFS
-   gPrefs->Read(wxT("/GUI/ShowMac"), &bUseAqua, false);
-#elif defined(USE_AQUA_THEME)
-   bUseAqua = true;
-#endif
-
-   const auto size = theTheme.ImageSize(bmpRecoloredSetupUpSmall);
-
-   if (bUseAqua)
-   {
-      MakeMacRecoloredImageSize(
-         bmpRecoloredSetupUpSmall, bmpMacUpButtonSmall, size);
-      MakeMacRecoloredImageSize(
-         bmpRecoloredSetupDownSmall, bmpMacDownButtonSmall, size);
-      MakeMacRecoloredImageSize(
-         bmpRecoloredSetupUpHiliteSmall, bmpMacHiliteUpButtonSmall, size);
-      MakeMacRecoloredImageSize(
-         bmpRecoloredSetupHiliteSmall, bmpMacHiliteButtonSmall, size);
-   }
-   else
-   {
-      MakeRecoloredImageSize(bmpRecoloredSetupUpSmall, bmpUpButtonSmall, size);
-      MakeRecoloredImageSize(
-         bmpRecoloredSetupDownSmall, bmpDownButtonSmall, size);
-      MakeRecoloredImageSize(
-         bmpRecoloredSetupUpHiliteSmall, bmpHiliteUpButtonSmall, size);
-      MakeRecoloredImageSize(
-         bmpRecoloredSetupHiliteSmall, bmpHiliteButtonSmall, size);
-   }
-
    mShareAudioButton = safenew AButton(this, ID_SHARE_AUDIO_BUTTON);
    //i18n-hint: Share audio button text, keep as short as possible
    mShareAudioButton->SetLabel(XO("Share Audio"));
    mShareAudioButton->SetButtonType(AButton::FrameButton);
-   mShareAudioButton->SetButtonToggles(true);
    mShareAudioButton->SetImages(
-      theTheme.Image(bmpRecoloredSetupUpSmall),
-      theTheme.Image(bmpRecoloredSetupUpHiliteSmall),
-      theTheme.Image(bmpRecoloredSetupDownSmall),
-      theTheme.Image(bmpRecoloredSetupHiliteSmall),
-      theTheme.Image(bmpRecoloredSetupUpSmall));
+      theTheme.Image(bmpRecoloredUpSmall),
+      theTheme.Image(bmpRecoloredUpHiliteSmall),
+      theTheme.Image(bmpRecoloredDownSmall),
+      theTheme.Image(bmpRecoloredHiliteSmall),
+      theTheme.Image(bmpRecoloredUpSmall));
    mShareAudioButton->SetIcon(theTheme.Image(bmpShareAudio));
    mShareAudioButton->SetForegroundColour(theTheme.Colour(clrTrackPanelText));
 
@@ -222,9 +197,8 @@ void ShareAudioToolbar::ArrangeButtons()
    Layout();
 
    const auto height = 2 * toolbarSingle;
-   const wxSize size(GetSizer()->GetMinSize().GetWidth(), height);
-   SetMinSize(size);
-   SetMaxSize(size);
+   SetMinSize({ std::max(76, GetSizer()->GetMinSize().GetWidth()), height });
+   SetMaxSize({ -1, height });
 }
 
 void ShareAudioToolbar::DestroySizer()
@@ -239,7 +213,7 @@ void ShareAudioToolbar::DestroySizer()
 }
 
 static RegisteredToolbarFactory factory {
-   ShareAudioBarID, [](AudacityProject& project)
+   [](AudacityProject& project)
    { return ToolBar::Holder { safenew ShareAudioToolbar { project } }; }
 };
 
@@ -248,7 +222,7 @@ namespace
 AttachedToolBarMenuItem sAttachment {
    /* i18n-hint: Clicking this menu item shows the toolbar
       that opens Share Audio dialog */
-   ShareAudioBarID, wxT("ShareAudioTB"), XXO("&Share Audio Toolbar")
+   ShareAudioToolbar::ID(), wxT("ShareAudioTB"), XXO("&Share Audio Toolbar")
 };
 }
 

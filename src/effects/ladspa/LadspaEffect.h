@@ -7,205 +7,45 @@
   Dominic Mazzoni
 
 **********************************************************************/
+#ifndef __AUDACITY_LADSPA_EFFECT__
+#define __AUDACITY_LADSPA_EFFECT__
 
-class wxSlider;
-class wxStaticText;
-class wxTextCtrl;
-class wxCheckBox;
-
-class NumericTextCtrl;
+#include "LadspaEffectBase.h"
 
 #include <wx/dynlib.h> // member variable
-#include <wx/event.h> // to inherit
-#include <wx/weakref.h>
+//#include <wx/event.h> // to inherit
+//#include <wx/weakref.h>
 
-#include "../PerTrackEffect.h"
+#include "../StatelessPerTrackEffect.h"
 #include "PluginProvider.h"
 #include "PluginInterface.h"
 
-#include "ladspa.h"
-#include "SampleFormat.h"
-
-#define LADSPAEFFECTS_VERSION wxT("1.0.0.0")
-/* i18n-hint: abbreviates "Linux Audio Developer's Simple Plugin API"
-   (Application programming interface)
- */
-#define LADSPAEFFECTS_FAMILY XO("LADSPA")
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// LadspaEffect
-//
-///////////////////////////////////////////////////////////////////////////////
-
-class LadspaEffectMeter;
-
-struct LadspaEffectSettings {
-   explicit LadspaEffectSettings(size_t nPorts = 0)
-      : controls( nPorts )
-   {}
-
-   // Allocate as many slots as there are ports, although some may correspond
-   // to audio, not control, ports and so rest unused
-   std::vector<float> controls;
-};
+//#include "SampleFormat.h"
 
 class LadspaEffect final
-   : public EffectWithSettings<LadspaEffectSettings, PerTrackEffect>
+   : public LadspaEffectBase
+   , public StatelessEffectUIServices
 {
 public:
-   LadspaEffect(const wxString & path, int index);
-   virtual ~LadspaEffect();
-
-   static bool LoadUseLatency(const EffectDefinitionInterface &effect);
-   static bool SaveUseLatency(
-      const EffectDefinitionInterface &effect, bool value);
-
-   EffectSettings MakeSettings() const override;
-   bool CopySettingsContents(
-      const EffectSettings &src, EffectSettings &dst,
-      SettingsCopyDirection copyDirection) const override;
-
-   // ComponentInterface implementation
-
-   PluginPath GetPath() const override;
-   ComponentInterfaceSymbol GetSymbol() const override;
-   VendorSymbol GetVendor() const override;
-   wxString GetVersion() const override;
-   TranslatableString GetDescription() const override;
-
-   // EffectDefinitionInterface implementation
-
-   EffectType GetType() const override;
-   EffectFamilySymbol GetFamily() const override;
-   bool IsInteractive() const override;
-   bool IsDefault() const override;
-   RealtimeSince RealtimeSupport() const override;
-   bool SupportsAutomation() const override;
-
-   bool SaveSettings(
-      const EffectSettings &settings, CommandParameters & parms) const override;
-   bool LoadSettings(
-      const CommandParameters & parms, EffectSettings &settings) const override;
-
-   bool LoadUserPreset(
-      const RegistryPath & name, EffectSettings &settings) const override;
-   bool SaveUserPreset(
-      const RegistryPath & name, const EffectSettings &settings) const override;
-
-   RegistryPaths GetFactoryPresets() const override;
-   bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
-
-   int ShowClientInterface(wxWindow &parent, wxDialog &dialog,
-      EffectUIValidator *pValidator, bool forceModal) override;
-   bool InitializePlugin();
-   bool FullyInitializePlugin();
-   bool InitializeControls(LadspaEffectSettings &settings) const;
-
-   // EffectUIClientInterface implementation
-
-   struct Instance;
-   std::shared_ptr<EffectInstance> MakeInstance() const override;
-   struct Validator;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
-
-   bool CanExportPresets() override;
-   void ExportPresets(const EffectSettings &settings) const override;
-   void ImportPresets(EffectSettings &settings) override;
-
-   bool HasOptions() override;
-   void ShowOptions() override;
-
-   // LadspaEffect implementation
+   using LadspaEffectBase::LadspaEffectBase;
+   ~LadspaEffect() override;
 
 private:
-   bool Load();
-   void Unload();
+   int ShowClientInterface(const EffectPlugin &plugin, wxWindow &parent,
+      wxDialog &dialog, EffectEditor *pEditor, bool forceModal)
+   const override;
 
-   bool LoadParameters(
-      const RegistryPath & group, EffectSettings &settings) const;
-   bool SaveParameters(
-      const RegistryPath & group, const EffectSettings &settings) const;
+   std::unique_ptr<EffectEditor> MakeEditor(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs)
+   const override;
 
-   LADSPA_Handle InitInstance(
-      float sampleRate, LadspaEffectSettings &settings) const;
-   void FreeInstance(LADSPA_Handle handle) const;
+   void ExportPresets(
+      const EffectPlugin &plugin, const EffectSettings &settings)
+   const override;
+   OptionalMessage ImportPresets(
+      const EffectPlugin &plugin, EffectSettings &settings) const override;
 
-private:
-
-   const wxString mPath;
-   const int mIndex;
-
-   wxDynamicLibrary mLib;
-   const LADSPA_Descriptor *mData{};
-
-   wxString pluginName;
-
-   size_t mBlockSize{ 0 };
-
-   bool mInteractive{ false };
-
-   unsigned mAudioIns{ 0 };
-   // Mapping from input channel number to audio port number
-   ArrayOf<unsigned long> mInputPorts;
-
-   unsigned mAudioOuts{ 0 };
-   // Mapping from output channel number to audio port number
-   ArrayOf<unsigned long> mOutputPorts;
-
-   int mNumInputControls{ 0 };
-   int mNumOutputControls{ 0 };
-
-   bool mUseLatency{ true };
-   int mLatencyPort{ -1 };
-
-   friend class LadspaEffectsModule;
+   void ShowOptions(const EffectPlugin &plugin) const override;
 };
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// LadspaEffectsModule
-//
-///////////////////////////////////////////////////////////////////////////////
-
-class LadspaEffectsModule final : public PluginProvider
-{
-public:
-   LadspaEffectsModule();
-   virtual ~LadspaEffectsModule();
-
-   // ComponentInterface implementation
-
-   PluginPath GetPath() const override;
-   ComponentInterfaceSymbol GetSymbol() const override;
-   VendorSymbol GetVendor() const override;
-   wxString GetVersion() const override;
-   TranslatableString GetDescription() const override;
-
-   // PluginProvider implementation
-
-   bool Initialize() override;
-   void Terminate() override;
-   EffectFamilySymbol GetOptionalFamilySymbol() override;
-
-   const FileExtensions &GetFileExtensions() override;
-   FilePath InstallPath() override;
-
-   void AutoRegisterPlugins(PluginManagerInterface & pm) override;
-   PluginPaths FindModulePaths(PluginManagerInterface & pm) override;
-   unsigned DiscoverPluginsAtPath(
-      const PluginPath & path, TranslatableString &errMsg,
-      const RegistrationCallback &callback)
-         override;
-   
-   bool CheckPluginExist(const PluginPath& path) const override;
-
-   std::unique_ptr<ComponentInterface>
-      LoadPlugin(const PluginPath & path) override;
-
-   // LadspaEffectModule implementation
-
-   FilePaths GetSearchPaths();
-};
+#endif

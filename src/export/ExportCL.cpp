@@ -16,7 +16,6 @@
 #include <thread>
 
 #include <wx/app.h>
-#include <wx/button.h>
 #include <wx/cmdline.h>
 #include <wx/combobox.h>
 #include <wx/log.h>
@@ -32,14 +31,14 @@
 
 #include "Mix.h"
 #include "Prefs.h"
-#include "../SelectFile.h"
-#include "../ShuttleGui.h"
-#include "../Tags.h"
+#include "SelectFile.h"
+#include "ShuttleGui.h"
+#include "Tags.h"
 #include "Track.h"
 #include "float_cast.h"
 #include "../widgets/FileHistory.h"
-#include "../widgets/AudacityMessageBox.h"
-#include "../widgets/ProgressDialog.h"
+#include "AudacityMessageBox.h"
+#include "ProgressDialog.h"
 #include "../widgets/Warning.h"
 #include "wxFileNameWrapper.h"
 

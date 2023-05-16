@@ -18,12 +18,12 @@ set( SOURCES
    EffectInterface.h
    PluginProvider.cpp
    PluginProvider.h
+   SettingsVisitor.cpp
+   SettingsVisitor.h
 )
 set( LIBRARIES
    lib-strings-interface
    lib-utility
-   PRIVATE
-   wxBase
 )
 audacity_library( lib-components "${SOURCES}" "${LIBRARIES}"
    "" ""

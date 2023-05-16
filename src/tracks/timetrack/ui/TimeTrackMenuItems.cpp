@@ -15,21 +15,19 @@ Paul Licameli split from TrackMenus.cpp
 #include "SelectUtilities.h"
 #include "TimeTrack.h"
 #include "TrackPanelAx.h"
-#include "ViewInfo.h"
 #include "../../../commands/CommandContext.h"
 #include "../../../commands/CommandManager.h"
-#include "widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 
 namespace {
 using namespace MenuTable;
 
-struct Handler : CommandHandlerObject {
 void OnNewTimeTrack(const CommandContext &context)
 {
    auto &project = context.project;
    auto &tracks = TrackList::Get( project );
-   auto &viewInfo = ViewInfo::Get( project );
    auto &window = ProjectWindow::Get( project );
+   
 
    if ( *tracks.Any<TimeTrack>().begin() ) {
       AudacityMessageBox(
@@ -38,7 +36,7 @@ void OnNewTimeTrack(const CommandContext &context)
       return;
    }
 
-   auto t = tracks.AddToHead( std::make_shared<TimeTrack>(&viewInfo) );
+   auto t = tracks.AddToHead(std::make_shared<TimeTrack>());
 
    SelectUtilities::SelectNone( project );
 
@@ -50,22 +48,11 @@ void OnNewTimeTrack(const CommandContext &context)
    TrackFocus::Get(project).Set(t);
    t->EnsureVisible();
 }
-};
 
-CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static Handler instance;
-   return instance;
-}
-
-#define FN(X) (&Handler :: X)
 AttachedItem sAttachment{ wxT("Tracks/Add/Add"),
-   ( FinderScope{ findCommandHandler },
      Command( wxT("NewTimeTrack"), XXO("&Time Track"),
-        FN(OnNewTimeTrack), AudioIONotBusyFlag() )
+        OnNewTimeTrack, AudioIONotBusyFlag()
  )
 };
-#undef FN
 
 }

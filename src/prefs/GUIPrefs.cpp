@@ -21,14 +21,16 @@
 #include "GUIPrefs.h"
 
 #include <wx/defs.h>
+#include <mutex> // once_flag
 
 #include "FileNames.h"
 #include "Languages.h"
 #include "Theme.h"
 #include "Prefs.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 
 #include "Decibels.h"
+#include "Beats.h"
 
 #include "ThemePrefs.h"
 #include "AColor.h"
@@ -127,16 +129,6 @@ void GUIPrefs::Populate()
    // ----------------------- End of main section --------------
 }
 
-ChoiceSetting GUIManualLocation{
-   wxT("/GUI/Help"),
-   {
-      ByColumns,
-      { XO("Local") ,  XO("From Internet") , },
-      { wxT("Local") , wxT("FromInternet") , }
-   },
-   1 // "FromInternet"
-};
-
 void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
 {
    ChoiceSetting LanguageSetting{ wxT("/Locale/Language"),
@@ -160,7 +152,6 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
          S.TieChoice( XXO("Meter dB &range:"), DBSetting);
       }
       S.EndMultiColumn();
-
    }
    S.EndStatic();
 
@@ -240,6 +231,8 @@ bool GUIPrefs::Commit()
    AColor::ApplyUpdatedImages();
 
    GUIBlendThemes.Invalidate();
+   DecibelScaleCutoff.Invalidate();
+
    return true;
 }
 

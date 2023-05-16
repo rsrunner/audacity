@@ -28,13 +28,9 @@ hold information about one contributor to Audacity.
 
 #include "AboutDialog.h"
 
-#include <wx/dialog.h>
 #include <wx/html/htmlwin.h>
-#include <wx/button.h>
 #include <wx/hyperlink.h>
-#include <wx/sizer.h>
 #include <wx/statbmp.h>
-#include <wx/intl.h>
 #include <wx/sstream.h>
 #include <wx/txtstrm.h>
 #include <wx/statbox.h>
@@ -43,8 +39,8 @@ hold information about one contributor to Audacity.
 #include "FileNames.h"
 #include "HelpText.h"
 #include "ShuttleGui.h"
-#include "widgets/HelpSystem.h"
-#include "ui/AccessibleLinksFormatter.h"
+#include "HelpSystem.h"
+#include "AccessibleLinksFormatter.h"
 
 #include "AllThemeResources.h"
 #include "Theme.h"
@@ -132,31 +128,24 @@ void AboutDialog::CreateCreditsList()
       XO("%s, graphics");
 
    // The Audacity Team: developers and support
-
    AddCredit(wxT("Gonzalo Guzm\u00E1n"), documentationAndSupportFormat, roleTeamMember);
    AddCredit(wxT("Peter Jonas"), developerFormat, roleTeamMember);
    AddCredit(wxT("Martin Keary"), roleTeamMember);
    AddCredit(wxT("Sergey Lapysh"), testerFormat, roleTeamMember);
    AddCredit(wxT("Paul Licameli"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Pietro Marcello"), developerFormat, roleTeamMember);
+   AddCredit(wxT("Ryan Miller"), testerFormat, roleTeamMember);
+   AddCredit(wxT("Dilson's Pickles"), designerFormat, roleTeamMember);
    AddCredit(wxT("K. Soze"), developerFormat, roleTeamMember);
    AddCredit(wxT("Anita Sudan"), roleTeamMember);
    AddCredit(wxT("Vitaly Sverchinsky"), developerFormat, roleTeamMember);
    AddCredit(wxT("Dmitry Vedenko"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Leo Wattenberg"), documentationAndSupportFormat, roleTeamMember);
+   AddCredit(wxT("Leo Wattenberg"), designerFormat, roleTeamMember);
    AddCredit(wxT("Jessica Williamson"), designerFormat, roleTeamMember);
-   
-   // Former Musers
-   AddCredit(wxT("Anton Gerasimov"), developerFormat, roleExMuse);
-   AddCredit(wxT("Jouni Helminen"), designerFormat, roleExMuse);
-   AddCredit(wxT("Pavel Penikov"), testerFormat, roleExMuse);
    
    // Emeritus: people who were "lead developers" or made an
    // otherwise distinguished contribution, but who are no
    // longer active.
-   AddCredit(
-      wxT("[[https://wiki.audacityteam.org/wiki/User:Galeandrews|Gale Andrews]]"),
-      qualityAssuranceFormat, roleEmeritusTeam);
+   AddCredit(wxT("Gale Andrews"), qualityAssuranceFormat, roleEmeritusTeam);
    AddCredit(wxT("Richard Ash"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Christian Brochec"),
       documentationAndSupportFrenchFormat, roleEmeritusTeam);
@@ -198,10 +187,12 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Cory Cook"), developerFormat, roleContributor);
    AddCredit(wxT("Craig DeForest"), developerFormat, roleContributor);
    AddCredit(wxT("Edgar Franke (Edgar-RFT)"), developerFormat, roleContributor);
+   AddCredit(wxT("Anton Gerasimov"), developerFormat, roleContributor);
    AddCredit(wxT("Mitch Golden"), developerFormat, roleContributor);
    AddCredit(wxT("Brian Gunlogson"), developerFormat, roleContributor);
    AddCredit(wxT("Andrew Hallendorff"), developerFormat, roleContributor);
    AddCredit(wxT("Robert H\u00E4nggi"), developerFormat, roleContributor);
+   AddCredit(wxT("Jouni Helminen"), designerFormat, roleContributor);
    AddCredit(wxT("Daniel Horgan"), developerFormat, roleContributor);
    AddCredit(wxT("David Hostetler"), developerFormat, roleContributor);
    AddCredit(wxT("Edward Hui"), developerFormat, roleContributor);
@@ -213,10 +204,12 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Paul Livesey"), developerFormat, roleContributor);
    AddCredit(wxT("Harvey Lubin"), graphicArtistFormat, roleContributor);
    AddCredit(wxT("Max Maisel"), developerFormat, roleContributor);
+   AddCredit(wxT("Pietro Marcello"), developerFormat, roleContributor);
    AddCredit(wxT("Greg Mekkes"), developerFormat, roleContributor);
    AddCredit(wxT("Abe Milde"), developerFormat, roleContributor);
    AddCredit(wxT("Paul Nasca"), developerFormat, roleContributor);
    AddCredit(wxT("Clayton Otey"), developerFormat, roleContributor);
+   AddCredit(wxT("Pavel Penikov"), testerFormat, roleContributor);
    AddCredit(wxT("Mark Phillips"), developerFormat, roleContributor);
    AddCredit(wxT("Andr\u00E9 Pinto"), developerFormat, roleContributor);
    AddCredit(wxT("Pokechu22"), developerFormat, roleContributor);
@@ -386,12 +379,6 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
       << XO("%s Team Members").Format( ProgramName )
       << wxT("</b><br>")
       << GetCreditsByRole(roleTeamMember)
-	  
-	  << wxT("<p><b>")
-	  /* i18n-hint: Musers are people working at Muse Group */
-      << XO("Former Musers")
-      << wxT("</b><br>")
-      << GetCreditsByRole(roleExMuse)
 
       << wxT("<p><b> ")
       << XO("Emeritus:")
@@ -442,7 +429,7 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
       << wxT("<p><br>&nbsp; &nbsp; ")
       /* i18n-hint Audacity's name substitutes for first and third %s,
        and a "copyright" symbol for the second */
-      << XO("%s software is copyright %s 1999-2021 %s Team.")
+      << XO("%s software is copyright %s 1999-2023 %s Team.")
          .Format(
             Verbatim("<b>%s<sup>&reg;</sup></b>").Format( ProgramName ),
             wxT("&copy;"),

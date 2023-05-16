@@ -31,6 +31,26 @@ set( LIBRARIES
    lib-project-history
    lib-graphics
    lib-audio-graph
+   lib-tags
+   lib-realtime-effects
+   lib-audio-io
+   lib-wave-track
+   lib-track-selection
+   lib-project-file-io
+   lib-command-parameters
+   lib-numeric-formats
+   lib-effects
+   lib-time-frequency-selection
+   lib-wx-wrappers
+   lib-shuttlegui
+   lib-wx-init
+   lib-time-track
+   lib-vst3
+   lib-snapping
+   lib-vst
+   lib-lv2
+   lib-ladspa
+   lib-audio-unit
 )
 
 if ( ${_OPT}has_networking )
@@ -46,6 +66,14 @@ if ( ${_OPT}has_audiocom_upload)
       lib-cloud-upload
       lib-cloud-audiocom
    )
+endif()
+
+if( ${_OPT}has_crashreports )
+   if( ${_OPT}crashreport_backend STREQUAL "breakpad" )
+      list( APPEND LIBRARIES lib-breakpad-configurer )
+   elseif( ${_OPT}crashreport_backend STREQUAL "crashpad" )
+      list( APPEND LIBRARIES lib-crashpad-configurer )
+   endif()
 endif()
 
 # This library depends on lib-network-manager

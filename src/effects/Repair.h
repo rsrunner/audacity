@@ -11,7 +11,7 @@
 #ifndef __AUDACITY_EFFECT_REPAIR__
 #define __AUDACITY_EFFECT_REPAIR__
 
-#include "Effect.h"
+#include "StatefulEffect.h"
 
 class WaveTrack;
 
@@ -36,6 +36,8 @@ public:
    // Effect implementation
 
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
+
+   bool NeedsDither() const override;
 
 private:
    // EffectRepair implementation

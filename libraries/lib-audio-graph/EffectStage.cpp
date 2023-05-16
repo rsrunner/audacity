@@ -20,12 +20,12 @@
 #include <cassert>
 
 namespace {
-std::vector<std::shared_ptr<EffectInstanceEx>> MakeInstances(
+std::vector<std::shared_ptr<EffectInstance>> MakeInstances(
    const AudioGraph::EffectStage::Factory &factory,
    EffectSettings &settings, double sampleRate, const Track &track
    , std::optional<sampleCount> genLength, bool multi)
 {
-   std::vector<std::shared_ptr<EffectInstanceEx>> instances;
+   std::vector<std::shared_ptr<EffectInstance>> instances;
    // Make as many instances as needed for the channels of the track, which
    // depends on how the instances report how many channels they accept
    const auto range = multi
@@ -301,25 +301,41 @@ std::optional<size_t> AudioGraph::EffectStage::FetchProcessAndAdvance(
    return oCurBlockSize;
 }
 
-bool AudioGraph::EffectStage::Process(EffectInstanceEx &instance,
+bool AudioGraph::EffectStage::Process(EffectInstance &instance,
    size_t channel, const Buffers &data, size_t curBlockSize,
    size_t outBufferOffset) const
 {
    size_t processed{};
    try {
+      const auto positions = mInBuffers.Positions();
+      const auto nPositions = mInBuffers.Channels();
+      // channel may be nonzero in the case of a plug-in that only reads
+      // one channel at a time, so multiple instances are made to mix stereo
+      assert(channel <= nPositions);
+      std::vector<float *> inPositions(
+         positions + channel, positions + nPositions - channel);
+      // When the plug-in expects many input channels, replicate the last
+      // buffer (assumed to be zero-filled) as dummy input
+      inPositions.resize(
+         instance.GetAudioInCount() - channel, inPositions.back());
+
+      std::vector<float *> advancedOutPositions;
+      const auto size = instance.GetAudioOutCount() - channel;
+      advancedOutPositions.reserve(size);
+
       auto outPositions = data.Positions();
-      std::vector<float *> advancedPositions;
-      if (outBufferOffset > 0) {
-         auto channels = data.Channels();
-         advancedPositions.reserve(channels - channel);
-         for (size_t ii = channel; ii < channels; ++ii)
-            advancedPositions.push_back(outPositions[ii] + outBufferOffset);
-         outPositions = advancedPositions.data();
-      }
-      else
-         outPositions += channel;
+      // It is assumed that data has at least one dummy buffer last
+      auto channels = data.Channels();
+      // channel may be nonzero in the case of a plug-in that only writes
+      // one channel at a time, so multiple instances are made to mix stereo
+      for (size_t ii = channel; ii < channels; ++ii)
+         advancedOutPositions.push_back(outPositions[ii] + outBufferOffset);
+      // When the plug-in expects many output channels, replicate the last
+      // as dummy output
+      advancedOutPositions.resize(size, advancedOutPositions.back());
+
       processed = instance.ProcessBlock(mSettings,
-         mInBuffers.Positions() + channel, outPositions, curBlockSize);
+         inPositions.data(), advancedOutPositions.data(), curBlockSize);
    }
    catch (const AudacityException &) {
       // PRL: Bug 437:

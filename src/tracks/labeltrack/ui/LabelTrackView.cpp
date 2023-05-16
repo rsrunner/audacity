@@ -23,12 +23,12 @@ Paul Licameli split from TrackPanel.cpp
 #include "../../../HitTestResult.h"
 #include "Project.h"
 #include "ProjectHistory.h"
+#include "ProjectNumericFormats.h"
 #include "ProjectRate.h"
-#include "../../../ProjectSettings.h"
 #include "../../../ProjectWindow.h"
 #include "../../../ProjectWindows.h"
 #include "../../../RefreshCode.h"
-#include "../../../SyncLock.h"
+#include "SyncLock.h"
 #include "Theme.h"
 #include "../../../TrackArt.h"
 #include "../../../TrackArtist.h"
@@ -37,8 +37,8 @@ Paul Licameli split from TrackPanel.cpp
 #include "../../../TrackPanelMouseEvent.h"
 #include "UndoManager.h"
 #include "ViewInfo.h"
-#include "../../../widgets/AudacityTextEntryDialog.h"
-#include "../../../widgets/wxWidgetsWindowPlacement.h"
+#include "AudacityTextEntryDialog.h"
+#include "wxWidgetsWindowPlacement.h"
 
 #include <wx/clipbrd.h>
 #include <wx/dcclient.h>
@@ -116,35 +116,28 @@ void LabelTrackView::Reparent( const std::shared_ptr<Track> &parent )
 {
    auto oldParent = FindLabelTrack();
    auto newParent = track_cast<LabelTrack*>(parent.get());
-   if (oldParent.get() != newParent) {
-      UnbindFrom( oldParent.get() );
+   if (oldParent.get() != newParent)
       BindTo( newParent );
-   }
    CommonTrackView::Reparent( parent );
 }
 
 void LabelTrackView::BindTo( LabelTrack *pParent )
 {
-   pParent->Bind(
-      EVT_LABELTRACK_ADDITION, &LabelTrackView::OnLabelAdded, this );
-   pParent->Bind(
-      EVT_LABELTRACK_DELETION, &LabelTrackView::OnLabelDeleted, this );
-   pParent->Bind(
-      EVT_LABELTRACK_PERMUTED, &LabelTrackView::OnLabelPermuted, this );
-   pParent->Bind(
-      EVT_LABELTRACK_SELECTION, &LabelTrackView::OnSelectionChange, this );
-}
-
-void LabelTrackView::UnbindFrom( LabelTrack *pParent )
-{
-   pParent->Unbind(
-      EVT_LABELTRACK_ADDITION, &LabelTrackView::OnLabelAdded, this );
-   pParent->Unbind(
-      EVT_LABELTRACK_DELETION, &LabelTrackView::OnLabelDeleted, this );
-   pParent->Unbind(
-      EVT_LABELTRACK_PERMUTED, &LabelTrackView::OnLabelPermuted, this );
-   pParent->Unbind(
-      EVT_LABELTRACK_SELECTION, &LabelTrackView::OnSelectionChange, this );
+   // Destroys any previous subscription to another track
+   mSubscription = pParent->Subscribe([this](const LabelTrackEvent &e){
+      switch (e.type) {
+      case LabelTrackEvent::Addition:
+         return OnLabelAdded(e);
+      case LabelTrackEvent::Deletion:
+         return OnLabelDeleted(e);
+      case LabelTrackEvent::Permutation:
+         return OnLabelPermuted(e);
+      case LabelTrackEvent::Selection:
+         return OnSelectionChange(e);
+      default:
+         return;
+      }
+   });
 }
 
 void LabelTrackView::CopyTo( Track &track ) const
@@ -2094,9 +2087,8 @@ int LabelTrackView::AddLabel(const SelectedRegion &selectedRegion,
    return pos;
 }
 
-void LabelTrackView::OnLabelAdded( LabelTrackEvent &e )
+void LabelTrackView::OnLabelAdded( const LabelTrackEvent &e )
 {
-   e.Skip();
    if ( e.mpTrack.lock() != FindTrack() )
       return;
 
@@ -2116,9 +2108,8 @@ void LabelTrackView::OnLabelAdded( LabelTrackEvent &e )
       mRestoreFocus = -2;
 }
 
-void LabelTrackView::OnLabelDeleted( LabelTrackEvent &e )
+void LabelTrackView::OnLabelDeleted( const LabelTrackEvent &e )
 {
-   e.Skip();
    if ( e.mpTrack.lock() != FindTrack() )
       return;
 
@@ -2135,9 +2126,8 @@ void LabelTrackView::OnLabelDeleted( LabelTrackEvent &e )
       --mTextEditIndex;//NB: Keep cursor selection region
 }
 
-void LabelTrackView::OnLabelPermuted( LabelTrackEvent &e )
+void LabelTrackView::OnLabelPermuted( const LabelTrackEvent &e )
 {
-   e.Skip();
    if ( e.mpTrack.lock() != FindTrack() )
       return;
 
@@ -2156,9 +2146,8 @@ void LabelTrackView::OnLabelPermuted( LabelTrackEvent &e )
    fix(mTextEditIndex);
 }
 
-void LabelTrackView::OnSelectionChange( LabelTrackEvent &e )
+void LabelTrackView::OnSelectionChange( const LabelTrackEvent &e )
 {
-   e.Skip();
    if ( e.mpTrack.lock() != FindTrack() )
       return;
 
@@ -2282,17 +2271,16 @@ void LabelTrackView::CreateCustomGlyphs()
 void LabelTrackView::DoEditLabels
 (AudacityProject &project, LabelTrack *lt, int index)
 {
-   const auto &settings = ProjectSettings::Get( project );
-   auto format = settings.GetSelectionFormat(),
-      freqFormat = settings.GetFrequencySelectionFormatName();
+   const auto &formats = ProjectNumericFormats::Get( project );
+   auto format = formats.GetSelectionFormat(),
+      freqFormat = formats.GetFrequencySelectionFormatName();
    auto &tracks = TrackList::Get( project );
-   auto rate = ProjectRate::Get( project ).GetRate();
    auto &viewInfo = ViewInfo::Get( project );
    auto &window = ProjectWindow::Get( project );
 
    LabelDialog dlg(&window, project, &tracks,
                    lt, index,
-                   viewInfo, rate,
+                   viewInfo,
                    format, freqFormat);
 #ifdef __WXGTK__
    dlg.Raise();

@@ -20,10 +20,9 @@ Paul Licameli split from Menus.cpp
 #include "Menus.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
-#include "ProjectFileIO.h"
 #include "ProjectHistory.h"
-#include "ProjectSettings.h"
 #include "ProjectWindows.h"
+#include "SyncLock.h"
 #include "UndoManager.h"
 #include "ViewInfo.h"
 #include "WaveTrack.h"
@@ -228,17 +227,6 @@ const ReservedCommandFlag&
       }
    }; return flag; }
 const ReservedCommandFlag&
-   UnsavedChangesFlag() { static ReservedCommandFlag flag{
-      [](const AudacityProject &project){
-         auto &undoManager = UndoManager::Get( project );
-         return
-            undoManager.UnsavedChanges()
-         ||
-            ProjectFileIO::Get( project ).IsModified()
-         ;
-      }
-   }; return flag; }
-const ReservedCommandFlag&
    UndoAvailableFlag() { static ReservedCommandFlag flag{
       [](const AudacityProject &project){
          return ProjectHistory::Get( project ).UndoAvailable();
@@ -279,13 +267,13 @@ const ReservedCommandFlag&
 const ReservedCommandFlag&
    IsNotSyncLockedFlag() { static ReservedCommandFlag flag{
       [](const AudacityProject &project){
-         return !ProjectSettings::Get( project ).IsSyncLocked();
+         return !SyncLockState::Get( project ).IsSyncLocked();
       }
    }; return flag; }  //awd
 const ReservedCommandFlag&
    IsSyncLockedFlag() { static ReservedCommandFlag flag{
       [](const AudacityProject &project){
-         return ProjectSettings::Get( project ).IsSyncLocked();
+         return SyncLockState::Get( project ).IsSyncLocked();
       }
    }; return flag; }  //awd
 const ReservedCommandFlag&

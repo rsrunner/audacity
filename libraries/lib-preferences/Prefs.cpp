@@ -54,7 +54,6 @@
 
 #include <wx/defs.h>
 #include <wx/app.h>
-#include <wx/intl.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 
@@ -203,6 +202,7 @@ void InitPreferences( std::unique_ptr<FileConfig> uPrefs )
    gPrefs = uPrefs.get();
    ugPrefs = std::move(uPrefs);
    wxConfigBase::Set(gPrefs);
+   PrefsListener::Broadcast();
 }
 
 void ResetPreferences()

@@ -17,10 +17,8 @@
 
 #include "PrefsPanel.h"
 
-class wxChoice;
-class wxTextCtrl;
 class ShuttleGui;
-enum sampleFormat : unsigned;
+enum class sampleFormat : unsigned;
 enum DitherType : unsigned;
 
 #define QUALITY_PREFS_PLUGIN_SYMBOL ComponentInterfaceSymbol{ XO("Quality") }
@@ -39,16 +37,7 @@ class AUDACITY_DLL_API QualityPrefs final : public PrefsPanel
 
  private:
    void Populate();
-   void GetNamesAndLabels();
-   void OnSampleRateChoice(wxCommandEvent & e);
-
-   TranslatableStrings mSampleRateNames;
-   std::vector<int> mSampleRateLabels;
-
-   wxChoice *mSampleRates;
-   wxTextCtrl *mOtherSampleRate;
-   int mOtherSampleRateValue;
-
+   
    DECLARE_EVENT_TABLE()
 };
 

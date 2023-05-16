@@ -1,12 +1,12 @@
 #include "../CommonCommandFlags.h"
 #include "ProjectHistory.h"
-#include "../ProjectSettings.h"
+#include "SyncLock.h"
 #include "../TrackPanelAx.h"
 #include "../ProjectWindow.h"
 #include "UndoManager.h"
-#include "../WaveClip.h"
+#include "WaveClip.h"
 #include "ViewInfo.h"
-#include "../WaveTrack.h"
+#include "WaveTrack.h"
 #include "../commands/CommandContext.h"
 #include "../commands/CommandManager.h"
 #include "../tracks/ui/TimeShiftHandle.h"
@@ -714,9 +714,8 @@ void DoClipLeftOrRight
    auto &trackFocus = TrackFocus::Get( project );
    auto &viewInfo = ViewInfo::Get( project );
    auto &selectedRegion = viewInfo.selectedRegion;
-   const auto &settings = ProjectSettings::Get( project );
    auto &tracks = TrackList::Get( project );
-   auto isSyncLocked = settings.IsSyncLocked();
+   auto isSyncLocked = SyncLockState::Get(project).IsSyncLocked();
 
    auto amount = DoClipMove( project, trackFocus.Get(),
         tracks, isSyncLocked, right );
@@ -742,14 +741,12 @@ void DoClipLeftOrRight
 }
 
 /// Namespace for functions for Clip menu
-namespace ClipActions {
+namespace {
 
 // exported helper functions
 // none
 
 // Menu handler functions
-
-struct Handler : CommandHandlerObject {
 
 void OnSelectPrevClipBoundaryToCursor
 (const CommandContext &context)
@@ -817,22 +814,8 @@ void OnClipRight(const CommandContext &context)
    }
 }
 
-}; // struct Handler
-
-} // namespace
-
-static CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static ClipActions::Handler instance;
-   return instance;
-};
-
 // Menu definitions
 
-#define FN(X) (& ClipActions::Handler :: X)
-
-namespace {
 using namespace MenuTable;
 
 // Register menu items
@@ -842,29 +825,28 @@ BaseItemSharedPtr ClipSelectMenu()
    using Options = CommandManager::Options;
 
    static BaseItemSharedPtr menu {
-   ( FinderScope{ findCommandHandler },
    Menu( wxT("Clip"), XXO("Audi&o Clips"),
       Command( wxT("SelPrevClipBoundaryToCursor"),
          XXO("Pre&vious Clip Boundary to Cursor"),
-         FN(OnSelectPrevClipBoundaryToCursor),
+         OnSelectPrevClipBoundaryToCursor,
          WaveTracksExistFlag() ),
       Command( wxT("SelCursorToNextClipBoundary"),
          XXO("Cursor to Ne&xt Clip Boundary"),
-         FN(OnSelectCursorToNextClipBoundary),
+         OnSelectCursorToNextClipBoundary,
          WaveTracksExistFlag() ),
       Command( wxT("SelPrevClip"), XXO("Previo&us Clip"),
-         FN(OnSelectPrevClip), WaveTracksExistFlag(),
+         OnSelectPrevClip, WaveTracksExistFlag(),
          Options{ wxT("Alt+,"), XO("Select Previous Clip") } ),
-      Command( wxT("SelNextClip"), XXO("N&ext Clip"), FN(OnSelectNextClip),
+      Command( wxT("SelNextClip"), XXO("N&ext Clip"), OnSelectNextClip,
          WaveTracksExistFlag(),
          Options{ wxT("Alt+."), XO("Select Next Clip") } )
-   ) ) };
+   ) };
    return menu;
 }
 
 AttachedItem sAttachment1{
    wxT("Select/Basic"),
-   Shared( ClipSelectMenu() )
+   Indirect(ClipSelectMenu())
 };
 
 BaseItemSharedPtr ClipCursorItems()
@@ -872,45 +854,41 @@ BaseItemSharedPtr ClipCursorItems()
    using Options = CommandManager::Options;
 
    static BaseItemSharedPtr items{
-   ( FinderScope{ findCommandHandler },
    Items( wxT("Clip"),
       Command( wxT("CursPrevClipBoundary"), XXO("Pre&vious Clip Boundary"),
-         FN(OnCursorPrevClipBoundary),
+         OnCursorPrevClipBoundary,
          WaveTracksExistFlag(),
          Options{}.LongName( XO("Cursor to Prev Clip Boundary") ) ),
       Command( wxT("CursNextClipBoundary"), XXO("Ne&xt Clip Boundary"),
-         FN(OnCursorNextClipBoundary),
+         OnCursorNextClipBoundary,
          WaveTracksExistFlag(),
          Options{}.LongName( XO("Cursor to Next Clip Boundary") ) )
-   ) ) };
+   ) };
    return items;
 }
 
 AttachedItem sAttachment2{
    { wxT("Transport/Basic/Cursor"),
      { OrderingHint::Before, wxT("CursProjectStart") } },
-   Shared( ClipCursorItems() )
+   Indirect(ClipCursorItems())
 };
 
 BaseItemSharedPtr ExtraTimeShiftItems()
 {
    using Options = CommandManager::Options;
    static BaseItemSharedPtr items{
-   ( FinderScope{ findCommandHandler },
    Items( wxT("TimeShift"),
-      Command( wxT("ClipLeft"), XXO("Time Shift &Left"), FN(OnClipLeft),
+      Command( wxT("ClipLeft"), XXO("Time Shift &Left"), OnClipLeft,
          TracksExistFlag() | TrackPanelHasFocus(), Options{}.WantKeyUp() ),
-      Command( wxT("ClipRight"), XXO("Time Shift &Right"), FN(OnClipRight),
+      Command( wxT("ClipRight"), XXO("Time Shift &Right"), OnClipRight,
          TracksExistFlag() | TrackPanelHasFocus(), Options{}.WantKeyUp() )
-   ) ) };
+   ) };
    return items;
 }
 
 AttachedItem sAttachment3{
   { wxT("Optional/Extra/Part1/Edit"), { OrderingHint::End, {} } },
-  Shared( ExtraTimeShiftItems() )
+   Indirect(ExtraTimeShiftItems())
 };
 
 }
-
-#undef FN

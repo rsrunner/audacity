@@ -26,6 +26,7 @@
 #include <thread>
 #include <wx/setup.h> // for wxUSE_* macros
 
+#include <wx/app.h>
 #include <wx/wxcrtvararg.h>
 #include <wx/button.h>
 #include <wx/calctrl.h>
@@ -35,10 +36,6 @@
 #include <wx/dir.h>
 #include <wx/datectrl.h>
 #include <wx/datetime.h>
-#include <wx/intl.h>
-#include <wx/sizer.h>
-#include <wx/string.h>
-#include <wx/timer.h>
 #include <wx/dynlib.h> //<! For windows.h
 
 #include "AudioIO.h"
@@ -48,16 +45,17 @@
 #include "ProjectFileIO.h"
 #include "ProjectFileManager.h"
 #include "ProjectManager.h"
+#include "ProjectRate.h"
 #include "Prefs.h"
 #include "Track.h"
 #include "widgets/NumericTextCtrl.h"
-#include "widgets/HelpSystem.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/ProgressDialog.h"
-#include "widgets/wxTextCtrlWrapper.h"
+#include "HelpSystem.h"
+#include "AudacityMessageBox.h"
+#include "ProgressDialog.h"
+#include "wxTextCtrlWrapper.h"
 
 #if wxUSE_ACCESSIBILITY
-#include "widgets/WindowAccessible.h"
+#include "WindowAccessible.h"
 #endif
 
 #define TIMER_ID 7000
@@ -405,7 +403,7 @@ void TimerRecordDialog::OnOK(wxCommandEvent& WXUNUSED(event))
    // complete this Timer Recording.
    // If we don't think there is enough space then ask the user
    // if they want to continue.
-   // We don't stop the user from starting the recording 
+   // We don't stop the user from starting the recording
    // as its possible that they plan to free up some
    // space before the recording begins
    auto &projectManager = ProjectManager::Get( mProject );
@@ -557,8 +555,8 @@ int TimerRecordDialog::RunWaitDialog()
 }
 
 int TimerRecordDialog::ExecutePostRecordActions(bool bWasStopped) {
-   // MY: We no longer automatically (and silently) call ->Save() when the 
-   // timer recording is completed.  We can now Save and/or Export depending 
+   // MY: We no longer automatically (and silently) call ->Save() when the
+   // timer recording is completed.  We can now Save and/or Export depending
    // on the options selected by the user.
    // Once completed, we can also close Audacity, restart the system or
    // shutdown the system.
@@ -779,12 +777,12 @@ void TimerRecordDialog::PopulateOrExchange(ShuttleGui& S)
             S.Name(XO("Start Date"))
                .AddWindow(m_pDatePickerCtrl_Start);
 
-            m_pTimeTextCtrl_Start = safenew NumericTextCtrl(
-               S.GetParent(), ID_TIMETEXT_START, NumericConverter::TIME,
-               {}, 0, 44100,
+            m_pTimeTextCtrl_Start = safenew NumericTextCtrl(FormatterContext::EmptyContext(),
+               S.GetParent(), ID_TIMETEXT_START, NumericConverterType_TIME(),
+               {}, 0,
                Options{}
                   .MenuEnabled(false)
-                  .Format(strFormat)
+                  .CustomFormat(strFormat)
                   .Value(true, wxDateTime_to_AudacityTime(m_DateTime_Start)));
             S.Name(XO("Start Time"))
                .AddWindow(m_pTimeTextCtrl_Start);
@@ -798,7 +796,7 @@ void TimerRecordDialog::PopulateOrExchange(ShuttleGui& S)
                ID_DATEPICKER_END, // wxWindowID id,
                m_DateTime_End); // const wxDateTime& dt = wxDefaultDateTime,
             // const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-            //                            long style = wxDP_DEFAULT | wxDP_SHOWCENTURY, 
+            //                            long style = wxDP_DEFAULT | wxDP_SHOWCENTURY,
             //                            const wxValidator& validator = wxDefaultValidator,
             //                            const wxString& name = "datectrl")
             m_pDatePickerCtrl_End->SetRange(m_DateTime_Start, wxInvalidDateTime); // No backdating.
@@ -808,12 +806,12 @@ void TimerRecordDialog::PopulateOrExchange(ShuttleGui& S)
             S.Name(XO("End Date"))
                .AddWindow(m_pDatePickerCtrl_End);
 
-            m_pTimeTextCtrl_End = safenew NumericTextCtrl(
-               S.GetParent(), ID_TIMETEXT_END, NumericConverter::TIME,
-               {}, 0, 44100,
+            m_pTimeTextCtrl_End = safenew NumericTextCtrl(FormatterContext::EmptyContext(),
+               S.GetParent(), ID_TIMETEXT_END, NumericConverterType_TIME(),
+               {}, 0,
                Options{}
                   .MenuEnabled(false)
-                  .Format(strFormat)
+                  .CustomFormat(strFormat)
                   .Value(true, wxDateTime_to_AudacityTime(m_DateTime_End)));
             S.Name(XO("End Time"))
                .AddWindow(m_pTimeTextCtrl_End);
@@ -822,12 +820,12 @@ void TimerRecordDialog::PopulateOrExchange(ShuttleGui& S)
 
          S.StartStatic(XO("Duration"), true);
          {
-            m_pTimeTextCtrl_Duration = safenew NumericTextCtrl(
-               S.GetParent(), ID_TIMETEXT_DURATION, NumericConverter::TIME,
-               {}, 0, 44100,
+            m_pTimeTextCtrl_Duration = safenew NumericTextCtrl(FormatterContext::EmptyContext(),
+               S.GetParent(), ID_TIMETEXT_DURATION, NumericConverterType_TIME(),
+               {}, 0,
                Options{}
                   .MenuEnabled(false)
-                  .Format(strFormat1)
+                  .CustomFormat(strFormat1)
                   .Value(true, m_TimeSpan_Duration.GetSeconds().ToDouble()));
             /* i18n-hint: This string is used to configure the controls which shows the recording
             * duration. As such it is important that only the alphabetic parts of the string
@@ -981,13 +979,13 @@ void TimerRecordDialog::UpdateEnd()
 {
    //v Use remaining disk -> record time calcs from AudacityProject::OnTimer to set range?
    m_DateTime_End = m_DateTime_Start + m_TimeSpan_Duration;
-   //wxLogDebug( "Time start %s end %s", 
+   //wxLogDebug( "Time start %s end %s",
    //   m_DateTime_Start.FormatISOCombined(' '),
    //   m_DateTime_End.FormatISOCombined(' ') );
 
    // Disable the range limitation (to fix Bug 1749 and 1978)
    // Otherwise SetVallue asserts when going back in time.
-   m_pDatePickerCtrl_End->SetRange(wxInvalidDateTime, wxInvalidDateTime); 
+   m_pDatePickerCtrl_End->SetRange(wxInvalidDateTime, wxInvalidDateTime);
    m_pDatePickerCtrl_End->SetValue(m_DateTime_End);
    // Re-enable range limitation to constrain user input.
    m_pDatePickerCtrl_End->SetRange(m_DateTime_Start, wxInvalidDateTime); // No backdating.
@@ -1094,4 +1092,167 @@ ProgressResult TimerRecordDialog::PreActionDelay(int iActionIndex, TimerRecordCo
       bIsTime = (dtActionTime <= wxDateTime::UNow());
    }
    return iUpdateResult;
+}
+
+// Register a menu item
+
+#include "commands/CommandContext.h"
+#include "commands/CommandManager.h"
+#include "CommonCommandFlags.h"
+#include "Project.h"
+#include "ProjectHistory.h"
+#include "ProjectSettings.h"
+#include "ProjectWindow.h"
+#include "UndoManager.h"
+
+namespace {
+void OnTimerRecord(const CommandContext &context)
+{
+   auto &project = context.project;
+   const auto &settings = ProjectSettings::Get( project );
+   auto &undoManager = UndoManager::Get( project );
+   auto &window = ProjectWindow::Get( project );
+
+   // MY: Due to improvements in how Timer Recording saves and/or exports
+   // it is now safer to disable Timer Recording when there is more than
+   // one open project.
+   if (AllProjects{}.size() > 1) {
+      AudacityMessageBox(
+         XO(
+"Timer Recording cannot be used with more than one open project.\n\nPlease close any additional projects and try again."),
+         XO("Timer Recording"),
+         wxICON_INFORMATION | wxOK);
+      return;
+   }
+
+   // MY: If the project has unsaved changes then we no longer allow access
+   // to Timer Recording.  This decision has been taken as the safest approach
+   // preventing issues surrounding "dirty" projects when Automatic Save/Export
+   // is used in Timer Recording.
+   if ((undoManager.UnsavedChanges()) &&
+       (TrackList::Get( project ).Any() || settings.EmptyCanBeDirty())) {
+      AudacityMessageBox(
+         XO(
+"Timer Recording cannot be used while you have unsaved changes.\n\nPlease save or close this project and try again."),
+         XO("Timer Recording"),
+         wxICON_INFORMATION | wxOK);
+      return;
+   }
+
+   // We check the selected tracks to see if there is enough of them to accommodate
+   // all input channels and all of them have the same sampling rate.
+   // Those checks will be later performed by recording function anyway,
+   // but we want to warn the user about potential problems from the very start.
+   const auto selectedTracks{ GetPropertiesOfSelected(project) };
+   const int rateOfSelected{ selectedTracks.rateOfSelected };
+   const int numberOfSelected{ selectedTracks.numberOfSelected };
+   const bool allSameRate{ selectedTracks.allSameRate };
+
+   if (!allSameRate) {
+      AudacityMessageBox(XO("The tracks selected "
+         "for recording must all have the same sampling rate"),
+         XO("Mismatched Sampling Rates"),
+         wxICON_ERROR | wxCENTRE);
+
+      return;
+   }
+
+   const auto existingTracks{ ProjectAudioManager::ChooseExistingRecordingTracks(project, true, rateOfSelected) };
+   if (existingTracks.empty()) {
+      if (numberOfSelected > 0 && rateOfSelected !=
+          ProjectRate::Get(project).GetRate()) {
+         AudacityMessageBox(XO(
+            "Too few tracks are selected for recording at this sample rate.\n"
+            "(Audacity requires two channels at the same sample rate for\n"
+            "each stereo track)"),
+            XO("Too Few Compatible Tracks Selected"),
+            wxICON_ERROR | wxCENTRE);
+
+         return;
+      }
+   }
+
+   // We use this variable to display "Current Project" in the Timer Recording
+   // save project field
+   bool bProjectSaved = !ProjectFileIO::Get( project ).IsModified();
+
+   //we break the prompting and waiting dialogs into two sections
+   //because they both give the user a chance to click cancel
+   //and therefore remove the newly inserted track.
+
+   TimerRecordDialog dialog(
+      &window, project, bProjectSaved); /* parent, project, project saved? */
+   int modalResult = dialog.ShowModal();
+   if (modalResult == wxID_CANCEL)
+   {
+      // Cancelled before recording - don't need to do anything.
+   }
+   else
+   {
+      // Bug #2382
+      // Allow recording to start at current cursor position.
+      #if 0
+      // Timer Record should not record into a selection.
+      bool bPreferNewTrack;
+      gPrefs->Read("/GUI/PreferNewTrackRecord",&bPreferNewTrack, false);
+      if (bPreferNewTrack) {
+         window.Rewind(false);
+      } else {
+         window.SkipEnd(false);
+      }
+      #endif
+
+      int iTimerRecordingOutcome = dialog.RunWaitDialog();
+      switch (iTimerRecordingOutcome) {
+      case POST_TIMER_RECORD_CANCEL_WAIT:
+         // Canceled on the wait dialog
+         ProjectHistory::Get( project ).RollbackState();
+         break;
+      case POST_TIMER_RECORD_CANCEL:
+         // RunWaitDialog() shows the "wait for start" as well as "recording"
+         // dialog if it returned POST_TIMER_RECORD_CANCEL it means the user
+         // cancelled while the recording, so throw out the fresh track.
+         // However, we can't undo it here because the PushState() is called in TrackPanel::OnTimer(),
+         // which is blocked by this function.
+         // so instead we mark a flag to undo it there.
+         ProjectAudioManager::Get( project ).SetTimerRecordCancelled();
+         break;
+      case POST_TIMER_RECORD_NOTHING:
+         // No action required
+         break;
+      case POST_TIMER_RECORD_CLOSE:
+         wxTheApp->CallAfter( []{
+            // Simulate the application Exit menu item
+            wxCommandEvent evt{ wxEVT_MENU, wxID_EXIT };
+            wxTheApp->AddPendingEvent( evt );
+         } );
+         ProjectManager::Get(project).SetSkipSavePrompt(true);
+         break;
+
+#ifdef __WINDOWS__
+      case POST_TIMER_RECORD_RESTART:
+         // Restart System
+         ProjectManager::Get(project).SetSkipSavePrompt(true);
+         system("shutdown /r /f /t 30");
+         break;
+      case POST_TIMER_RECORD_SHUTDOWN:
+         // Shutdown System
+         ProjectManager::Get(project).SetSkipSavePrompt(true);
+         system("shutdown /s /f /t 30");
+         break;
+#endif
+      }
+   }
+}
+
+const auto CanStopFlags = AudioIONotBusyFlag() | CanStopAudioStreamFlag();
+
+using namespace MenuTable;
+AttachedItem sAttachment{
+   { wxT("Transport/Basic/Record"),
+      { OrderingHint::After, wxT("Record2ndChoice") } },
+   Command( wxT("TimerRecord"), XXO("&Timer Record..."),
+      OnTimerRecord, CanStopFlags, wxT("Shift+T") )
+};
+
 }

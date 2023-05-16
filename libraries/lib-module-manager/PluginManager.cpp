@@ -37,6 +37,7 @@ for shared and private configs - which need to move out.
 #include "ModuleManager.h"
 #include "PlatformCompatibility.h"
 #include "Base64.h"
+#include "Variant.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -525,6 +526,7 @@ bool PluginManager::DropFile(const wxString &fileName)
                   mRegisteredPlugins[id].SetEnabled(enable);
                // Make changes to enabled status persist:
                this->Save();
+               this->NotifyPluginsChanged();
             }
 
             return true;
@@ -907,6 +909,11 @@ void PluginManager::Save()
    registry.Flush();
 
    mRegver = REGVERCUR;
+}
+
+void PluginManager::NotifyPluginsChanged()
+{
+   Publisher<PluginsChangedMessage>::Publish({});
 }
 
 const PluginRegistryVersion &PluginManager::GetRegistryVersion() const
@@ -1306,6 +1313,26 @@ wxString PluginManager::GetPluginTypeString(PluginType type)
    return str;
 }
 
+bool PluginManager::IsPluginAvailable(const PluginDescriptor& plug)
+{
+   const auto& providerID = plug.GetProviderID();
+   auto provider = ModuleManager::Get().CreateProviderInstance(providerID, wxEmptyString);
+
+   if (provider == nullptr)
+   {
+      wxLogWarning("Unable to find a provider for '%s'", providerID);
+      return false;
+   }
+
+   if (provider->CheckPluginExist(plug.GetPath()) == false)
+   {
+      wxLogWarning("Plugin '%s' does not exist", plug.GetID());
+      return false;
+   }
+
+   return true;
+}
+
 PluginDescriptor & PluginManager::CreatePlugin(const PluginID & id,
                                                ComponentInterface *ident,
                                                PluginType type)
@@ -1404,6 +1431,7 @@ bool PluginManager::HasConfigValue(const RegistryPath & key)
 bool PluginManager::GetConfigValue(
    const RegistryPath & key, ConfigReference var, ConfigConstReference defval)
 {
+   using namespace Variant;
    if (key.empty())
       return false;
    const auto visitor = [&](const auto var){
@@ -1420,6 +1448,7 @@ bool PluginManager::GetConfigValue(
 bool PluginManager::SetConfigValue(
    const RegistryPath & key, ConfigConstReference value)
 {
+   using namespace Variant;
    if (key.empty())
       return false;
    const auto visitor = [&](const auto value){

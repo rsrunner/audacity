@@ -13,7 +13,7 @@
 
 #include "Observer.h"
 #include "Prefs.h"
-#include "widgets/wxPanelWrapper.h" // to inherit
+#include "wxPanelWrapper.h" // to inherit
 
 class wxButton;
 class wxListCtrl;
@@ -32,7 +32,7 @@ class HistoryDialog final : public wxDialogWrapper,
  public:
    HistoryDialog(AudacityProject * parent, UndoManager *manager);
 
-   void UpdateDisplayForClipboard(wxEvent &);
+   void UpdateDisplayForClipboard(struct ClipboardChangeMessage);
    void UpdateDisplay(struct UndoRedoMessage);
    void DoUpdateDisplay();
    
@@ -60,6 +60,7 @@ class HistoryDialog final : public wxDialogWrapper,
 
    Observer::Subscription mAudioIOSubscription
       , mUndoSubscription
+      , mClipboardSubscription
    ;
 
    AudacityProject   *mProject;

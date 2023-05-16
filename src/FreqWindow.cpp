@@ -44,11 +44,8 @@ the mouse around.
 #include <wx/dcclient.h>
 #include <wx/dcmemory.h>
 #include <wx/font.h>
-#include <wx/image.h>
 #include <wx/file.h>
-#include <wx/intl.h>
 #include <wx/scrolbar.h>
-#include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/statbmp.h>
 #include <wx/stattext.h>
@@ -80,13 +77,17 @@ the mouse around.
 
 #include "WaveTrack.h"
 
-#include "./widgets/HelpSystem.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/Ruler.h"
+#include "HelpSystem.h"
+#include "AudacityMessageBox.h"
+#include "widgets/RulerPanel.h"
+#include "widgets/LinearUpdater.h"
+#include "widgets/LogarithmicUpdater.h"
+#include "widgets/LinearDBFormat.h"
+#include "widgets/RealFormat.h"
 #include "widgets/VetoDialogHook.h"
 
 #if wxUSE_ACCESSIBILITY
-#include "widgets/WindowAccessible.h"
+#include "WindowAccessible.h"
 #endif
 
 #define FrequencyAnalysisTitle XO("Frequency Analysis")
@@ -293,7 +294,7 @@ void FrequencyPlotDialog::Populate()
             S.GetParent(), wxID_ANY, wxVERTICAL,
             wxSize{ 100, 100 }, // Ruler can't handle small sizes
             RulerPanel::Range{ 0.0, -dBRange },
-            Ruler::LinearDBFormat,
+            LinearDBFormat::Instance(),
             XO("dB"),
             RulerPanel::Options{}
                .LabelEdges(true)
@@ -376,7 +377,7 @@ void FrequencyPlotDialog::Populate()
             S.GetParent(), wxID_ANY, wxHORIZONTAL,
             wxSize{ 100, 100 }, // Ruler can't handle small sizes
             RulerPanel::Range{ 10, 20000 },
-            Ruler::RealFormat,
+            RealFormat::LinearInstance(),
             XO("Hz"),
             RulerPanel::Options{}
                .Log(true)
@@ -674,10 +675,10 @@ void FrequencyPlotDialog::DrawPlot()
    if (!mData || mDataLen < mWindowSize || mAnalyst->GetProcessedSize() == 0) {
       wxMemoryDC memDC;
 
-      vRuler->ruler.SetLog(false);
+      vRuler->ruler.SetUpdater(&LinearUpdater::Instance());
       vRuler->ruler.SetRange(0.0, -dBRange);
 
-      hRuler->ruler.SetLog(false);
+      hRuler->ruler.SetUpdater(&LinearUpdater::Instance());
       hRuler->ruler.SetRange(0, 1);
 
       DrawBackground(memDC);
@@ -714,10 +715,10 @@ void FrequencyPlotDialog::DrawPlot()
 
    if (mAlg == SpectrumAnalyst::Spectrum) {
       vRuler->ruler.SetUnits(XO("dB"));
-      vRuler->ruler.SetFormat(Ruler::LinearDBFormat);
+      vRuler->ruler.SetFormat(&LinearDBFormat::Instance());
    } else {
       vRuler->ruler.SetUnits({});
-      vRuler->ruler.SetFormat(Ruler::RealFormat);
+      vRuler->ruler.SetFormat(&RealFormat::LinearInstance());
    }
    int w1, w2, h;
    vRuler->ruler.GetMaxSize(&w1, &h);
@@ -752,19 +753,19 @@ void FrequencyPlotDialog::DrawPlot()
       if (mLogAxis)
       {
          xStep = pow(2.0f, (log(xRatio) / log(2.0f)) / width);
-         hRuler->ruler.SetLog(true);
+         hRuler->ruler.SetUpdater(&LogarithmicUpdater::Instance());
       }
       else
       {
          xStep = (xMax - xMin) / width;
-         hRuler->ruler.SetLog(false);
+         hRuler->ruler.SetUpdater(&LinearUpdater::Instance());
       }
       hRuler->ruler.SetUnits(XO("Hz"));
    } else {
       xMin = 0;
       xMax = mAnalyst->GetProcessedSize() / mRate;
       xStep = (xMax - xMin) / width;
-      hRuler->ruler.SetLog(false);
+      hRuler->ruler.SetUpdater(&LinearUpdater::Instance());
       /* i18n-hint: short form of 'seconds'.*/
       hRuler->ruler.SetUnits(XO("s"));
    }
@@ -1212,37 +1213,27 @@ AttachedWindows::RegisteredFactory sFrequencyWindowKey{
 };
 
 // Define our extra menu item that invokes that factory
-struct Handler : CommandHandlerObject {
-   void OnPlotSpectrum(const CommandContext &context)
-   {
-      auto &project = context.project;
-      CommandManager::Get(project).RegisterLastAnalyzer(context);  //Register Plot Spectrum as Last Analyzer
-      auto freqWindow = &GetAttachedWindows(project)
-         .Get< FrequencyPlotDialog >( sFrequencyWindowKey );
+void OnPlotSpectrum(const CommandContext &context)
+{
+   auto &project = context.project;
+   CommandManager::Get(project).RegisterLastAnalyzer(context);  //Register Plot Spectrum as Last Analyzer
+   auto freqWindow = &GetAttachedWindows(project)
+      .Get< FrequencyPlotDialog >( sFrequencyWindowKey );
 
-      if( VetoDialogHook::Call( freqWindow ) )
-         return;
-      freqWindow->Show(true);
-      freqWindow->Raise();
-      freqWindow->SetFocus();
-   }
-};
-
-CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static Handler instance;
-   return instance;
+   if( VetoDialogHook::Call( freqWindow ) )
+      return;
+   freqWindow->Show(true);
+   freqWindow->Raise();
+   freqWindow->SetFocus();
 }
 
 // Register that menu item
 
 using namespace MenuTable;
 AttachedItem sAttachment{ wxT("Analyze/Analyzers/Windows"),
-   ( FinderScope{ findCommandHandler },
-      Command( wxT("PlotSpectrum"), XXO("Plot Spectrum..."),
-         &Handler::OnPlotSpectrum,
-         AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag() ) )
+   Command( wxT("PlotSpectrum"), XXO("Plot Spectrum..."),
+      OnPlotSpectrum,
+      AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag() )
 };
 
 }

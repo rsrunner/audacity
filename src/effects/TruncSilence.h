@@ -17,8 +17,9 @@
 #ifndef __AUDACITY_EFFECT_TRUNC_SILENCE__
 #define __AUDACITY_EFFECT_TRUNC_SILENCE__
 
-#include "Effect.h"
-#include "../ShuttleAutomation.h"
+#include "StatefulEffect.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class ShuttleGui;
 class wxChoice;
@@ -67,11 +68,13 @@ public:
                         double* minInputLength = NULL) const;
 
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
+
+   bool NeedsDither() const override;
 
 private:
    // EffectTruncSilence implementation
@@ -91,6 +94,8 @@ private:
    bool DoRemoval
       (const RegionList &silences, unsigned iGroup, unsigned nGroups, Track *firstTrack, Track *lastTrack,
        double &totalCutLen);
+
+   wxWeakRef<wxWindow> mUIParent{};
 
    double mThresholdDB {} ;
    int mActionIndex;

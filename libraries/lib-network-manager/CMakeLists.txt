@@ -33,13 +33,12 @@ set( SOURCES
 )
 
 
-set ( LIBRARIES PRIVATE
-    CURL::libcurl
-    ThreadPool::ThreadPool
+set ( LIBRARIES
     lib-string-utils-interface
+PRIVATE
+    CURL::libcurl
+    threadpool::threadpool
     lib-exceptions-interface
-    lib-utility-interface
-    wxwidgets::base
 )
 
 set ( DEFINES INTERFACE "HAS_NETWORKING" )

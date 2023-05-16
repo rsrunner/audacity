@@ -12,24 +12,21 @@
 \brief An Effect to bring the loudness level up to a chosen level.
 
 *//*******************************************************************/
-
-
-
 #include "Loudness.h"
+#include "EffectEditor.h"
 
 #include <math.h>
 
-#include <wx/intl.h>
 #include <wx/simplebook.h>
 #include <wx/valgen.h>
 
 #include "Internat.h"
 #include "Prefs.h"
 #include "../ProjectFileManager.h"
-#include "../ShuttleGui.h"
-#include "../WaveTrack.h"
+#include "ShuttleGui.h"
+#include "WaveTrack.h"
 #include "../widgets/valnum.h"
-#include "../widgets/ProgressDialog.h"
+#include "ProgressDialog.h"
 
 #include "LoadEffects.h"
 
@@ -212,9 +209,11 @@ bool EffectLoudness::Process(EffectInstance &, EffectSettings &)
    return bGoodResult;
 }
 
-std::unique_ptr<EffectUIValidator> EffectLoudness::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectLoudness::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    S.StartVerticalLay(0);
    {
       S.StartMultiColumn(2, wxALIGN_CENTER);
@@ -516,9 +515,9 @@ void EffectLoudness::UpdateUI()
    {
       mWarning->SetLabel(_("(Maximum 0dB)"));
       // TODO: recalculate layout here
-      EnableApply(false);
+      EffectEditor::EnableApply(mUIParent, false);
       return;
    }
    mWarning->SetLabel(wxT(""));
-   EnableApply(true);
+   EffectEditor::EnableApply(mUIParent, true);
 }

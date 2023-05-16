@@ -27,7 +27,6 @@ code out of ModuleManager.
 #include "AppCommandEvent.h"
 #include "Project.h"
 #include <wx/app.h>
-#include <wx/string.h>
 #include <thread>
 
 /// This is the function which actually obeys one command.
@@ -92,6 +91,7 @@ void ScriptCommandRelay::StartScriptServer(tpRegScriptServerFunc scriptFn)
    std::thread(server, scriptFn).detach();
 }
 
+#if USE_NYQUIST
 void * ExecForLisp( char * pIn )
 {
    wxString Str1(pIn);
@@ -101,3 +101,4 @@ void * ExecForLisp( char * pIn )
 
    return nyq_reformat_aud_do_response(Str2);
 }
+#endif

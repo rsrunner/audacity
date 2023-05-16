@@ -19,22 +19,22 @@ Paul Licameli split from TrackPanel.cpp
 #include "AudioIOBase.h"
 #include "../../../../CellularPanel.h"
 #include "Project.h"
-#include "../../../../ProjectAudioIO.h"
+#include "ProjectAudioIO.h"
 #include "ProjectHistory.h"
 #include "../../../../ProjectWindows.h"
 #include "../../../../RefreshCode.h"
-#include "../../../../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "Theme.h"
 #include "../../../../TrackArtist.h"
 #include "../../../../TrackPanel.h"
 #include "../../../../TrackPanelAx.h"
 #include "../../../../TrackPanelMouseEvent.h"
-#include "../../../../WaveTrack.h"
-#include "../../../../effects/RealtimeEffectManager.h"
+#include "WaveTrack.h"
+#include "RealtimeEffectManager.h"
 #include "../../../../prefs/PrefsDialog.h"
 #include "../../../../prefs/ThemePrefs.h"
-#include "../../../../widgets/AudacityMessageBox.h"
-#include "widgets/ProgressDialog.h"
+#include "AudacityMessageBox.h"
+#include "ProgressDialog.h"
 #include "UserException.h"
 #include "Identifier.h"
 
@@ -174,7 +174,7 @@ struct FormatMenuTable :  PopupMenuTable
 
    PlayableTrackControls::InitMenuData *mpData{};
 
-   static int IdOfFormat(int format);
+   static int IdOfFormat(sampleFormat format);
 
    void OnFormatChange(wxCommandEvent & event);
 };
@@ -208,7 +208,7 @@ BEGIN_POPUP_MENU(FormatMenuTable)
 END_POPUP_MENU()
 
 /// Converts a format enumeration to a wxWidgets menu item Id.
-int FormatMenuTable::IdOfFormat(int format)
+int FormatMenuTable::IdOfFormat(sampleFormat format)
 {
    switch (format) {
    case int16Sample:

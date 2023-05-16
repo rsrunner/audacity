@@ -17,20 +17,18 @@ An extended mode of EffectToneGen supports 'chirps' where the
 frequency changes smoothly during the tone.
 
 *//*******************************************************************/
-
-
 #include "ToneGen.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <math.h>
 
 #include <wx/choice.h>
-#include <wx/intl.h>
 #include <wx/valgen.h>
 
 #include "Project.h"
 #include "ProjectRate.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "../widgets/valnum.h"
 #include "../widgets/NumericTextCtrl.h"
 
@@ -270,9 +268,11 @@ void EffectToneGen::PostSet()
 
 // Effect implementation
 
-std::unique_ptr<EffectUIValidator> EffectToneGen::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &access)
+std::unique_ptr<EffectEditor> EffectToneGen::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &access,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    wxTextCtrl *t;
 
    S.StartMultiColumn(2, wxCENTER);
@@ -375,11 +375,11 @@ std::unique_ptr<EffectUIValidator> EffectToneGen::PopulateOrExchange(
       S.AddPrompt(XXO("&Duration:"));
       auto &extra = access.Get().extra;
       mToneDurationT = safenew
-         NumericTextCtrl(S.GetParent(), wxID_ANY,
-                         NumericConverter::TIME,
+         NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                         S.GetParent(), wxID_ANY,
+                         NumericConverterType_TIME(),
                          extra.GetDurationFormat(),
                          extra.GetDuration(),
-                         mProjectRate,
                          NumericTextCtrl::Options{}
                             .AutoPos(true));
       S.Name(XO("Duration"))
@@ -424,7 +424,8 @@ bool EffectToneGen::TransferDataFromWindow(EffectSettings &settings)
 
 void EffectToneGen::OnControlUpdate(wxCommandEvent & WXUNUSED(evt))
 {
-   if (!EnableApply(mUIParent->TransferDataFromWindow()))
+   if (!EffectEditor::EnableApply(
+      mUIParent, mUIParent->TransferDataFromWindow()))
    {
       return;
    }

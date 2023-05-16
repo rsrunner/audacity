@@ -12,17 +12,19 @@
 
 #include <wx/frame.h>
 
-#include "widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 #include "AudioIO.h"
 #include "CommonCommandFlags.h"
 #include "Menus.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
 #include "ProjectHistory.h"
+#include "ProjectNumericFormats.h"
 #include "ProjectWindows.h"
 #include "ProjectRate.h"
 #include "ProjectSettings.h"
 #include "SelectionState.h"
+#include "SyncLock.h"
 #include "TimeDialog.h"
 #include "TrackPanelAx.h"
 #include "TrackPanel.h"
@@ -121,11 +123,10 @@ void DoListSelection
 {
    auto &tracks = TrackList::Get( project );
    auto &selectionState = SelectionState::Get( project );
-   const auto &settings = ProjectSettings::Get( project );
    auto &viewInfo = ViewInfo::Get( project );
    auto &window = GetProjectFrame( project );
 
-   auto isSyncLocked = settings.IsSyncLocked();
+   auto isSyncLocked = SyncLockState::Get(project).IsSyncLocked();
 
    selectionState.HandleListSelection(
       tracks, viewInfo, *t,
@@ -231,7 +232,7 @@ void OnSetRegion(AudacityProject &project,
    auto &viewInfo = ViewInfo::Get( project );
    auto &playRegion = viewInfo.playRegion;
    auto &selectedRegion = viewInfo.selectedRegion;
-   const auto &settings = ProjectSettings::Get( project );
+   const auto &formats = ProjectNumericFormats::Get( project );
    auto &window = GetProjectFrame( project );
 
    const auto getValue = [&]() -> double {
@@ -274,11 +275,10 @@ void OnSetRegion(AudacityProject &project,
    }
    else
    {
-      auto fmt = settings.GetSelectionFormat();
-      auto rate = ProjectRate::Get(project).GetRate();
+      auto fmt = formats.GetSelectionFormat();
 
       TimeDialog dlg(&window, dialogTitle,
-         fmt, rate, getValue(), XO("Position"));
+         fmt, project, getValue(), XO("Position"));
 
       if (wxID_OK == dlg.ShowModal())
       {

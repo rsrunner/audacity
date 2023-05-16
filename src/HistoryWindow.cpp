@@ -21,11 +21,8 @@ undo memory so as to free up space.
 
 #include <wx/defs.h>
 #include <wx/button.h>
-#include <wx/dialog.h>
-#include <wx/event.h>
 #include <wx/frame.h>
 #include <wx/imaglist.h>
-#include <wx/intl.h>
 #include <wx/listctrl.h>
 #include <wx/settings.h>
 #include <wx/spinctrl.h>
@@ -44,8 +41,8 @@ undo memory so as to free up space.
 #include "ProjectHistory.h"
 #include "ProjectWindows.h"
 #include "ShuttleGui.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/HelpSystem.h"
+#include "AudacityMessageBox.h"
+#include "HelpSystem.h"
 
 #include <unordered_set>
 #include "SampleBlock.h"
@@ -91,10 +88,10 @@ struct SpaceUsageCalculator {
       // state.
 
       manager.VisitStates(
-         [this, &seen]( const UndoStackElem &elem ){
+         [this, &seen](const UndoStackElem &elem) {
             // Scan all tracks at current level
-            auto &tracks = *elem.state.tracks;
-            space.push_back(CalculateUsage(tracks, seen));
+            if (auto pTracks = TrackList::FindUndoTracks(elem))
+               space.push_back(CalculateUsage(*pTracks, seen));
          },
          true // newest state first
       );
@@ -152,8 +149,8 @@ HistoryDialog::HistoryDialog(AudacityProject *parent, UndoManager *manager):
 
    mAudioIOSubscription = AudioIO::Get()->Subscribe(*this, &HistoryDialog::OnAudioIO);
 
-   Clipboard::Get().Bind(
-      EVT_CLIPBOARD_CHANGE, &HistoryDialog::UpdateDisplayForClipboard, this);
+   mClipboardSubscription = Clipboard::Get()
+      .Subscribe(*this, &HistoryDialog::UpdateDisplayForClipboard);
 
    if (parent)
       mUndoSubscription = UndoManager::Get(*parent)
@@ -248,9 +245,8 @@ void HistoryDialog::OnAudioIO(AudioIOEvent evt)
 #endif
 }
 
-void HistoryDialog::UpdateDisplayForClipboard(wxEvent& e)
+void HistoryDialog::UpdateDisplayForClipboard(ClipboardChangeMessage)
 {
-   e.Skip();
    DoUpdateDisplay();
 }
 
@@ -503,22 +499,13 @@ AttachedWindows::RegisteredFactory sHistoryWindowKey{
 };
 
 // Define our extra menu item that invokes that factory
-struct Handler : CommandHandlerObject {
-   void OnHistory(const CommandContext &context)
-   {
-      auto &project = context.project;
+void OnHistory(const CommandContext &context)
+{
+   auto &project = context.project;
 
-      auto historyWindow = &GetAttachedWindows(project).Get(sHistoryWindowKey);
-      historyWindow->Show();
-      historyWindow->Raise();
-   }
-};
-
-CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static Handler instance;
-   return instance;
+   auto historyWindow = &GetAttachedWindows(project).Get(sHistoryWindowKey);
+   historyWindow->Show();
+   historyWindow->Raise();
 }
 
 // Register that menu item
@@ -561,11 +548,10 @@ AttachedItem sAttachment{ wxT("View/Windows"),
    // FOR REDESIGN,
    // clearly there are some limitations with the flags/mask bitmaps.
 
-   ( FinderScope{ findCommandHandler },
    /* i18n-hint: Clicking this menu item shows the various editing steps
       that have been taken.*/
-      Command( wxT("UndoHistory"), XXO("&History"), &Handler::OnHistory,
-         AudioIONotBusyFlag() ) )
+   Command( wxT("UndoHistory"), XXO("&History"), OnHistory,
+      AudioIONotBusyFlag() )
 };
 
 }

@@ -11,11 +11,11 @@
 
 #include "NoUpdatesAvailableDialog.h"
 
-#include "widgets/HelpSystem.h"
+#include "HelpSystem.h"
 #include "ShuttleGui.h"
 
 #include "prefs/PrefsDialog.h"
-#include "ui/AccessibleLinksFormatter.h"
+#include "AccessibleLinksFormatter.h"
 
 #include <wx/stattext.h>
 

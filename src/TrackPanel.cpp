@@ -60,6 +60,7 @@ is time to refresh some aspect of the screen.
 #include "ProjectSettings.h"
 #include "ProjectStatus.h"
 #include "ProjectWindow.h"
+#include "SyncLock.h"
 #include "Theme.h"
 #include "TrackArt.h"
 #include "TrackPanelMouseEvent.h"
@@ -94,7 +95,7 @@ is time to refresh some aspect of the screen.
 #include <wx/dcclient.h>
 #include <wx/graphics.h>
 
-#include "effects/RealtimeEffectManager.h"
+#include "RealtimeEffectManager.h"
 
 static_assert( kVerticalPadding == kTopMargin + kBottomMargin );
 static_assert( kTrackInfoBtnSize == kAffordancesAreaHeight, "Drag bar is misaligned with the menu button");
@@ -313,8 +314,9 @@ TrackPanel::TrackPanel(wxWindow * parent, wxWindowID id,
    });
 
    auto theProject = GetProject();
-   theProject->Bind(
-      EVT_PROJECT_SETTINGS_CHANGE, &TrackPanel::OnProjectSettingsChange, this);
+   mSyncLockSubscription = SyncLockState::Get(*theProject)
+      .Subscribe(*this, &TrackPanel::OnSyncLockChange);
+
    mFocusChangeSubscription = TrackFocus::Get(*theProject)
       .Subscribe(*this, &TrackPanel::OnTrackFocusChange);
 
@@ -364,7 +366,7 @@ AudacityProject * TrackPanel::GetProject() const
    while(window != nullptr)
    {
       if(const auto projectWindow = dynamic_cast<ProjectWindow*>(window))
-         return &projectWindow->GetProject();
+         return projectWindow->FindProject().get();
 
       window = window->GetParent();
    }
@@ -452,16 +454,9 @@ void TrackPanel::OnTimer(wxTimerEvent& )
       mTimeCount = 0;
 }
 
-void TrackPanel::OnProjectSettingsChange( wxCommandEvent &event )
+void TrackPanel::OnSyncLockChange(SyncLockChangeMessage)
 {
-   event.Skip();
-   switch ( static_cast<ProjectSettings::EventCode>( event.GetInt() ) ) {
-   case ProjectSettings::ChangedSyncLock:
-      Refresh(false);
-      break;
-   default:
-      break;
-   }
+   Refresh(false);
 }
 
 void TrackPanel::OnUndoReset(UndoRedoMessage message)

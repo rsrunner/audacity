@@ -18,10 +18,8 @@
 
 #include <wx/setup.h> // for wxUSE_* macros
 
-#include <wx/string.h> // member variable
-
 #if wxUSE_ACCESSIBILITY
-#include "widgets/WindowAccessible.h" // to inherit
+#include "WindowAccessible.h" // to inherit
 #endif
 
 #include "ClientData.h" // to inherit

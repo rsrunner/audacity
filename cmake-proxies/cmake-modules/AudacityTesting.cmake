@@ -2,21 +2,6 @@ if( ${_OPT}has_tests )
 
    set( TESTS_DIR "${CMAKE_BINARY_DIR}/tests" )
 
-   if( CMAKE_CONFIGURATION_TYPES )
-      set( TESTS_DEST_DIR "${CMAKE_BINARY_DIR}/tests/${CMAKE_CFG_INTDIR}" )
-   else()
-      set( TESTS_DEST_DIR "${CMAKE_BINARY_DIR}/tests/${CMAKE_BUILD_TYPE}" )
-   endif()
-
-   # Install Catch2 framework
-
-   add_conan_lib(
-      Catch2
-      catch2/2.13.8
-      REQUIRED
-      ALWAYS_ALLOW_CONAN_FALLBACK
-   )
-
    # Setup default CTest arguments when running from IDE
 
    set(CMAKE_CTEST_ARGUMENTS "--output-on-failure;--verbose;${CMAKE_CTEST_ARGUMENTS}")
@@ -24,7 +9,12 @@ if( ${_OPT}has_tests )
    enable_testing()
 
    #[[
-      add_unit_test(NAME name SOURCES file1 ... LIBRARIES lib1 ...)
+      add_unit_test(NAME name [MOCK_PREFS] [MOCK_AUDIO] SOURCES file1 ... LIBRARIES lib1 ...)
+
+      If MOCK_PREFS is specified, a test can instantiate a mocked Prefs object.
+      If MOCK_AUDIO is specified, a test will initialize PortAudio.
+
+      Audio mocking is a subject to change when Audio I/O is refactored.
 
       Creates an executable called ${name}-test from the source files ${file1}, ... and linked
       to libraries ${lib1}, ... Catch2 is linked implicitly.
@@ -34,7 +24,7 @@ if( ${_OPT}has_tests )
    function( add_unit_test )
       cmake_parse_arguments(
          ADD_UNIT_TEST # Prefix
-         "" # Options
+         "MOCK_PREFS;MOCK_AUDIO" # Options
          "NAME" # One value keywords
          "SOURCES;LIBRARIES"
          ${ARGN}
@@ -49,7 +39,19 @@ if( ${_OPT}has_tests )
       # Create test executable
 
       add_executable( ${test_executable_name} ${ADD_UNIT_TEST_SOURCES} "${CMAKE_SOURCE_DIR}/tests/Catch2Main.cpp")
-      target_link_libraries( ${test_executable_name} ${ADD_UNIT_TEST_LIBRARIES} Catch2::Catch2 )
+      target_link_libraries( ${test_executable_name} PRIVATE ${ADD_UNIT_TEST_LIBRARIES} Catch2::Catch2 )
+
+      if (ADD_UNIT_TEST_MOCK_PREFS)
+         target_compile_definitions( ${test_executable_name} PRIVATE MOCK_PREFS )
+         target_sources( ${test_executable_name} PRIVATE "${CMAKE_SOURCE_DIR}/tests/MockedPrefs.cpp" "${CMAKE_SOURCE_DIR}/tests/MockedPrefs.h" )
+         target_include_directories( ${test_executable_name} PRIVATE "${CMAKE_SOURCE_DIR}/tests" )
+         target_link_libraries( ${test_executable_name} PRIVATE lib-preferences-interface )
+      endif()
+
+      if (ADD_UNIT_TEST_MOCK_AUDIO)
+         target_compile_definitions( ${test_executable_name} PRIVATE MOCK_AUDIO )
+         target_sources( ${test_executable_name} PRIVATE "${CMAKE_SOURCE_DIR}/tests/MockedAudio.cpp" "${CMAKE_SOURCE_DIR}/tests/MockedAudio.h" )
+      endif()
 
       set( OPTIONS )
       audacity_append_common_compiler_options( OPTIONS NO )
@@ -59,10 +61,10 @@ if( ${_OPT}has_tests )
          ${test_executable_name}
          PROPERTIES
             FOLDER "tests" # for IDE organization
-            RUNTIME_OUTPUT_DIRECTORY ${TESTS_DIR}
-            BUILD_RPATH ${_SHARED_PROXY_PATH}
+            RUNTIME_OUTPUT_DIRECTORY "${TESTS_DIR}"
+            BUILD_RPATH "${_DESTDIR}/${_PKGLIB}"
             # Allow running tests from Visual Studio by setting up the proper PATH
-            VS_DEBUGGER_ENVIRONMENT "PATH=${_SHARED_PROXY_PATH};%PATH%"
+            VS_DEBUGGER_ENVIRONMENT "PATH=${_DESTDIR}/${_PKGLIB};%PATH%"
       )
 
       # Register unit test with CTest
@@ -82,7 +84,6 @@ if( ${_OPT}has_tests )
 
       if( WIN32 )
          # On Windows, set the PATH so it points to the DLL location
-         # This is required to avoid invoking CopyLibs.
 
          # CTest expects that ENVIRONMENT is a CMake list.
          # Escape ';' so PATH is handled correctly
@@ -91,7 +92,7 @@ if( ${_OPT}has_tests )
          set_tests_properties(
             ${ADD_UNIT_TEST_NAME}
             PROPERTIES
-               ENVIRONMENT "PATH=$<SHELL_PATH:${_SHARED_PROXY_BASE_PATH}/$<CONFIG>>\\;${escaped_path}"
+               ENVIRONMENT "PATH=$<SHELL_PATH:${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/$<CONFIG>>\\;${escaped_path}"
          )
       elseif( APPLE )
          # We target an old version of macOS, disable std::uncaught_exceptions
@@ -100,7 +101,7 @@ if( ${_OPT}has_tests )
          set_tests_properties(
             ${ADD_UNIT_TEST_NAME}
             PROPERTIES
-               ENVIRONMENT "DYLD_FALLBACK_LIBRARY_PATH=$<SHELL_PATH:${_SHARED_PROXY_BASE_PATH}/$<CONFIG>>"
+               ENVIRONMENT "DYLD_FALLBACK_LIBRARY_PATH=$<SHELL_PATH:${CMAKE_BINARY_DIR}/$<CONFIG>/${_APPDIR}/Frameworks>"
          )
       endif()
    endfunction()

@@ -23,9 +23,13 @@ class TimeToolBarListener;
 class TimeToolBar final : public ToolBar
 {
 public:
+   static Identifier ID();
+
    TimeToolBar(AudacityProject &project);
    virtual ~TimeToolBar();
    
+   DockID DefaultDockID() const override;
+
    static TimeToolBar &Get(AudacityProject &project);
    static const TimeToolBar &Get(const AudacityProject &project);
    
@@ -46,8 +50,7 @@ public:
 private:
    void SetResizingLimits();
    wxSize ComputeSizing(int digitH);
-
-   void OnRateChanged(double);
+   
    void OnUpdate(wxCommandEvent &evt);
    void OnSize(wxSizeEvent &evt);
    void OnIdle(wxIdleEvent &evt);
@@ -59,9 +62,7 @@ private:
 
    static const int minDigitH = 17;
    static const int maxDigitH = 100;
-
-   Observer::Subscription mSubscription;
-
+   
 public:
    
    DECLARE_CLASS(TimeToolBar)

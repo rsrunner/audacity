@@ -14,11 +14,9 @@
   slowing down tempo without changing pitch.
 
 *//*******************************************************************/
-
-
-
 #if USE_SOUNDTOUCH
 #include "ChangeTempo.h"
+#include "EffectEditor.h"
 
 #if USE_SBSMS
 #include <wx/valgen.h>
@@ -26,11 +24,10 @@
 
 #include <math.h>
 
-#include <wx/intl.h>
 #include <wx/checkbox.h>
 #include <wx/slider.h>
 
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "../widgets/valnum.h"
 #include "TimeWarper.h"
 
@@ -194,9 +191,12 @@ bool EffectChangeTempo::Process(EffectInstance &, EffectSettings &settings)
    return success;
 }
 
-std::unique_ptr<EffectUIValidator> EffectChangeTempo::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectChangeTempo::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
+
    enum { precision = 2 };
 
    S.StartVerticalLay(0);

@@ -14,7 +14,8 @@
 #define __AUDACITY_EFFECT_NOISE__
 
 #include "StatefulPerTrackEffect.h"
-#include "../ShuttleAutomation.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class NumericTextCtrl;
 class ShuttleGui;
@@ -48,14 +49,16 @@ public:
 
    // Effect implementation
 
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
 private:
    // EffectNoise implementation
+
+   wxWeakRef<wxWindow> mUIParent{};
 
    double mSampleRate{};
    int mType;

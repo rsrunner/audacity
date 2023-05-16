@@ -17,7 +17,8 @@
 
 #include <vamp-hostsdk/PluginLoader.h>
 
-#include "../Effect.h"
+#include <wx/weakref.h>
+#include "../StatefulEffect.h"
 #include "MemoryX.h"
 
 class wxStaticText;
@@ -69,9 +70,9 @@ public:
 
    bool Init() override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -88,6 +89,8 @@ private:
    void OnTextCtrl(wxCommandEvent & evt);
 
 private:
+   wxWeakRef<wxWindow> mUIParent{};
+
    std::unique_ptr<Vamp::Plugin> mPlugin;
    PluginPath mPath;
    int mOutput;

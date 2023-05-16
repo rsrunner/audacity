@@ -28,9 +28,10 @@
 
 
 #include "ProjectHistory.h"
-#include "../../../../SelectionState.h"
+#include "SelectionState.h"
 #include "../../../../ProjectSettings.h"
 #include "../../../../RefreshCode.h"
+#include "SyncLock.h"
 #include "Theme.h"
 
 class NoteTrackAffordanceHandle final : public AffordanceHandle
@@ -46,10 +47,9 @@ public:
     UIHandle::Result SelectAt(const TrackPanelMouseEvent& event, AudacityProject* pProject) override
     {
         auto& viewInfo = ViewInfo::Get(*pProject);
-        const auto& settings = ProjectSettings::Get(*pProject);
         const auto track = TrackList::Get(*pProject).Lock<Track>(GetTrack());
 
-        SelectionState::SelectTrackLength(viewInfo, *track, settings.IsSyncLocked());
+        SelectionState::SelectTrackLength(viewInfo, *track, SyncLockState::Get(*pProject).IsSyncLocked());
 
         ProjectHistory::Get(*pProject).ModifyState(false);
 
@@ -127,7 +127,8 @@ void NoteTrackAffordanceControls::Draw(TrackPanelDrawingContext& context, const 
             context.dc.SetTextBackground(wxTransparentColor);
             context.dc.SetTextForeground(theTheme.Colour(clrClipNameText));
             context.dc.SetFont(wxFont(wxFontInfo()));
-            TrackArt::DrawClipAffordance(context.dc, clipRect, nt->GetName(), highlight, selected);
+            const auto titleRect = TrackArt::DrawClipAffordance(context.dc, clipRect, highlight, selected);
+            TrackArt::DrawClipTitle(context.dc, titleRect, nt->GetName());
         }
     }
 }
