@@ -66,7 +66,7 @@
                         Medium: #404552;
                           Dark: #2f343f;
                  LightSelected: #9c9a94;
-                MediumSelected: #8e8875;
+                MediumSelected: #505666;
                   DarkSelected: #505050;
                        Clipped: #ff0000;
                    MuteClipped: #888890;
