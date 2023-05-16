@@ -16,9 +16,6 @@
 #include <wx/choice.h>
 #include <wx/dynlib.h>
 #include <wx/filename.h>
-#include <wx/intl.h>
-#include <wx/timer.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
 #include <wx/window.h>
 
@@ -29,12 +26,12 @@
 #include "Mix.h"
 #include "Prefs.h"
 #include "ProjectRate.h"
-#include "../ShuttleGui.h"
-#include "../Tags.h"
+#include "ShuttleGui.h"
+#include "Tags.h"
 #include "Track.h"
-#include "../widgets/AudacityMessageBox.h"
-#include "../widgets/ProgressDialog.h"
-#include "../widgets/wxWidgetsWindowPlacement.h"
+#include "AudacityMessageBox.h"
+#include "ProgressDialog.h"
+#include "wxWidgetsWindowPlacement.h"
 #include "wxFileNameWrapper.h"
 
 #include "Export.h"

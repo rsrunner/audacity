@@ -24,8 +24,8 @@ Paul Licameli split from AudacityProject.cpp
 #include "PlatformCompatibility.h"
 #include "Project.h"
 #include "ProjectFileIO.h"
-#include "ProjectFSCK.h"
 #include "ProjectHistory.h"
+#include "ProjectNumericFormats.h"
 #include "ProjectSelectionManager.h"
 #include "ProjectWindows.h"
 #include "ProjectRate.h"
@@ -47,11 +47,11 @@ Paul Licameli split from AudacityProject.cpp
 #include "import/Import.h"
 #include "import/ImportMIDI.h"
 #include "toolbars/SelectionBar.h"
-#include "widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 #include "widgets/FileHistory.h"
 #include "widgets/UnwritableLocationErrorDialog.h"
 #include "widgets/Warning.h"
-#include "widgets/wxPanelWrapper.h"
+#include "wxPanelWrapper.h"
 #include "XMLFileReader.h"
 
 #include "HelpText.h"
@@ -1005,22 +1005,19 @@ AudacityProject *ProjectFileManager::OpenProjectFile(
    const bool err = results.trackError;
 
    if (bParseSuccess) {
+      auto &formats = ProjectNumericFormats::Get( project );
       auto &settings = ProjectSettings::Get( project );
-      window.mbInitializingScrollbar = true; // this must precede AS_SetSnapTo
-         // to make persistence of the vertical scrollbar position work
+      window.mbInitializingScrollbar = true;
 
       auto &selectionManager = ProjectSelectionManager::Get( project );
-      selectionManager.AS_SetSnapTo(settings.GetSnapTo());
-      selectionManager.AS_SetSelectionFormat(settings.GetSelectionFormat());
-      selectionManager.TT_SetAudioTimeFormat(settings.GetAudioTimeFormat());
+
+      selectionManager.AS_SetSelectionFormat(formats.GetSelectionFormat());
+      selectionManager.TT_SetAudioTimeFormat(formats.GetAudioTimeFormat());
       selectionManager.SSBL_SetFrequencySelectionFormatName(
-      settings.GetFrequencySelectionFormatName());
+      formats.GetFrequencySelectionFormatName());
       selectionManager.SSBL_SetBandwidthSelectionFormatName(
-      settings.GetBandwidthSelectionFormatName());
-
-      SelectionBar::Get( project )
-         .SetRate( ProjectRate::Get(project).GetRate() );
-
+         formats.GetBandwidthSelectionFormatName());
+      
       ProjectHistory::Get( project ).InitialState();
       TrackFocus::Get( project ).Set( *tracks.Any().begin() );
       window.HandleResize();
@@ -1155,7 +1152,6 @@ ProjectFileManager::AddImportedTracks(const FilePath &fileName,
    // if this is the first file that is imported
    if (initiallyEmpty && newRate > 0) {
       ProjectRate::Get(project).SetRate( newRate );
-      SelectionBar::Get( project ).SetRate( newRate );
    }
 
    history.PushState(XO("Imported '%s'").Format( fileName ),
@@ -1333,7 +1329,7 @@ bool ProjectFileManager::Import(
 
 #include "Clipboard.h"
 #include "ShuttleGui.h"
-#include "widgets/HelpSystem.h"
+#include "HelpSystem.h"
 
 // Compact dialog
 namespace {
@@ -1403,8 +1399,10 @@ void ProjectFileManager::Compact()
    const auto least = std::min<size_t>(savedState, currentState);
    const auto greatest = std::max<size_t>(savedState, currentState);
    std::vector<const TrackList*> trackLists;
-   auto fn = [&](auto& elem){
-      trackLists.push_back(elem.state.tracks.get()); };
+   auto fn = [&](const UndoStackElem& elem) {
+      if (auto pTracks = TrackList::FindUndoTracks(elem))
+         trackLists.push_back(pTracks);
+   };
    undoManager.VisitStates(fn, least, 1 + least);
    if (least != greatest)
       undoManager.VisitStates(fn, greatest, 1 + greatest);
@@ -1461,4 +1459,46 @@ void ProjectFileManager::Compact()
          XO("Compacted project file"),
          XO("Compact") );
    }
+}
+
+static void RefreshAllTitles(bool bShowProjectNumbers )
+{
+   for ( auto pProject : AllProjects{} ) {
+      if ( !GetProjectFrame( *pProject ).IsIconized() ) {
+         ProjectFileIO::Get( *pProject ).SetProjectTitle(
+            bShowProjectNumbers ? pProject->GetProjectNumber() : -1 );
+      }
+   }
+}
+
+TitleRestorer::TitleRestorer(
+   wxTopLevelWindow &window, AudacityProject &project )
+{
+   if( window.IsIconized() )
+      window.Restore();
+   window.Raise(); // May help identifying the window on Mac
+
+   // Construct this project's name and number.
+   sProjName = project.GetProjectName();
+   if ( sProjName.empty() ) {
+      sProjName = _("<untitled>");
+      UnnamedCount = std::count_if(
+         AllProjects{}.begin(), AllProjects{}.end(),
+         []( const AllProjects::value_type &ptr ){
+            return ptr->GetProjectName().empty();
+         }
+      );
+      if ( UnnamedCount > 1 ) {
+         sProjNumber.Printf(
+            _("[Project %02i] "), project.GetProjectNumber() + 1 );
+         RefreshAllTitles( true );
+      }
+   }
+   else
+      UnnamedCount = 0;
+}
+
+TitleRestorer::~TitleRestorer() {
+   if( UnnamedCount > 1 )
+      RefreshAllTitles( false );
 }

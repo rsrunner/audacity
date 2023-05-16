@@ -19,7 +19,7 @@
 #include "ProjectAudioManager.h"
 #include "ViewInfo.h"
 #include "toolbars/ControlToolBar.h"
-#include "widgets/ProgressDialog.h"
+#include "ProgressDialog.h"
 
 void TransportUtilities::PlayCurrentRegionAndWait(
    const CommandContext &context,
@@ -191,7 +191,6 @@ void TransportUtilities::DoStartPlaying(
    const CommandContext &context, bool newDefault)
 {
    auto &project = context.project;
-   auto &projectAudioManager = ProjectAudioManager::Get(project);
    auto gAudioIO = AudioIOBase::Get();
    //play the front project
    if (!gAudioIO->IsBusy()) {

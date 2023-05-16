@@ -10,38 +10,33 @@
   http://www.vamp-plugins.org/
 
 **********************************************************************/
-
-
-
 #if defined(USE_VAMP)
 #include "VampEffect.h"
+#include "../AnalysisTracks.h"
+#include "../EffectEditor.h"
 
 #include <vamp-hostsdk/Plugin.h>
 #include <vamp-hostsdk/PluginChannelAdapter.h>
 #include <vamp-hostsdk/PluginInputDomainAdapter.h>
 
 #include <wx/wxprec.h>
-#include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/combobox.h>
-#include <wx/sizer.h>
 #include <wx/slider.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
-#include <wx/tokenzr.h>
-#include <wx/intl.h>
 #include <wx/scrolwin.h>
 #include <wx/version.h>
 
 
-#include "../../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "../../widgets/valnum.h"
-#include "../../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 
 #include "../../LabelTrack.h"
-#include "../../WaveTrack.h"
+#include "WaveTrack.h"
 
 enum
 {
@@ -312,7 +307,7 @@ bool VampEffect::Init()
          // So is this check not adequate?
           {
              // TODO: more-than-two-channels-message
-             Effect::MessageBox(
+             EffectUIServices::DoMessageBox(*this,
                 XO(
 "Sorry, Vamp Plug-ins cannot be run on stereo tracks where the individual channels of the track do not match.") );
              return false;
@@ -333,7 +328,8 @@ bool VampEffect::Init()
    mPlugin.reset(loader->loadPlugin(mKey, mRate, Vamp::HostExt::PluginLoader::ADAPT_ALL));
    if (!mPlugin)
    {
-      Effect::MessageBox( XO("Sorry, failed to load Vamp Plug-in.") );
+      EffectUIServices::DoMessageBox(*this,
+         XO("Sorry, failed to load Vamp Plug-in."));
       return false;
    }
 
@@ -361,7 +357,7 @@ bool VampEffect::Process(EffectInstance &, EffectSettings &)
       multiple = true;
    }
 
-   std::vector<std::shared_ptr<Effect::AddedAnalysisTrack>> addedTracks;
+   std::vector<std::shared_ptr<AddedAnalysisTrack>> addedTracks;
 
    for (auto leader : inputTracks()->Leaders<const WaveTrack>())
    {
@@ -426,14 +422,14 @@ bool VampEffect::Process(EffectInstance &, EffectSettings &)
       {
          if (!mPlugin->initialise(channels, step, block))
          {
-            Effect::MessageBox(
-               XO("Sorry, Vamp Plug-in failed to initialize.") );
+            EffectUIServices::DoMessageBox(*this,
+               XO("Sorry, Vamp Plug-in failed to initialize."));
             return false;
          }
       }
 
       const auto effectName = GetSymbol().Translation();
-      addedTracks.push_back(AddAnalysisTrack(
+      addedTracks.push_back(AddAnalysisTrack(*this,
          multiple
          ? wxString::Format( _("%s: %s"), left->GetName(), effectName )
          : effectName
@@ -526,9 +522,11 @@ bool VampEffect::Process(EffectInstance &, EffectSettings &)
    return true;
 }
 
-std::unique_ptr<EffectUIValidator> VampEffect::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> VampEffect::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    Vamp::Plugin::ProgramList programs = mPlugin->getPrograms();
 
    mParameters = mPlugin->getParameterDescriptors();

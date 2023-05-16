@@ -21,17 +21,14 @@ or "OFF" point
 
 #include "VoiceKey.h"
 
-#include <wx/string.h>
 #include <math.h>
-#include <stdio.h>
 
 #include <wx/textfile.h>
-#include <wx/intl.h>
 #include <iostream>
 
 #include "WaveTrack.h"
-#include "widgets/AudacityMessageBox.h"
-#include "widgets/wxPanelWrapper.h"
+#include "AudacityMessageBox.h"
+#include "wxPanelWrapper.h"
 
 using std::cout;
 using std::endl;

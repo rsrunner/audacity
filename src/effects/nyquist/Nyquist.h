@@ -11,10 +11,10 @@
 #ifndef __AUDACITY_EFFECT_NYQUIST__
 #define __AUDACITY_EFFECT_NYQUIST__
 
-#include "../Effect.h"
+#include "../StatefulEffect.h"
 #include "FileNames.h"
 #include "SampleCount.h"
-#include "../../widgets/wxPanelWrapper.h"
+#include "wxPanelWrapper.h"
 
 #include "nyx.h"
 
@@ -120,13 +120,13 @@ public:
 
    bool Init() override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   int ShowHostInterface( wxWindow &parent,
+   int ShowHostInterface(EffectPlugin &plugin, wxWindow &parent,
       const EffectDialogFactory &factory,
       std::shared_ptr<EffectInstance> &pInstance, EffectSettingsAccess &access,
       bool forceModal = false) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -139,6 +139,8 @@ public:
    void Stop();
 
 private:
+   wxWeakRef<wxWindow> mUIParent{};
+
    static int mReentryCount;
    // NyquistEffect implementation
 
@@ -242,7 +244,7 @@ private:
     * the "Nyquist Effect Prompt", or "Nyquist Prompt", false for all other effects (lisp code read from
     * files)
     */
-   bool              mIsPrompt;
+   const bool        mIsPrompt;
    bool              mOK;
    TranslatableString mInitError;
    wxString          mInputCmd; // history: exactly what the user typed

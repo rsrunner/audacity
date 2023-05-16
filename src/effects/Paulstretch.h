@@ -10,9 +10,10 @@
 #ifndef __AUDACITY_EFFECT_PAULSTRETCH__
 #define __AUDACITY_EFFECT_PAULSTRETCH__
 
-#include "Effect.h"
-#include "../ShuttleAutomation.h"
+#include "StatefulEffect.h"
+#include "ShuttleAutomation.h"
 #include <float.h> // for FLT_MAX
+#include <wx/weakref.h>
 
 class ShuttleGui;
 
@@ -41,9 +42,9 @@ public:
    double CalcPreviewInputLength(
       const EffectSettings &settings, double previewLength) const override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -54,6 +55,8 @@ private:
    size_t GetBufferSize(double rate) const;
 
    bool ProcessOne(WaveTrack *track, double t0, double t1, int count);
+
+   wxWeakRef<wxWindow> mUIParent;
 
    float mAmount;
    float mTime_resolution;  //seconds

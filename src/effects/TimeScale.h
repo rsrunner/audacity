@@ -16,7 +16,8 @@
 #if USE_SBSMS
 
 #include "SBSMSEffect.h"
-#include "../ShuttleAutomation.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class wxSlider;
 class wxTextCtrl;
@@ -44,11 +45,11 @@ public:
 
    // Effect implementation
 
-   void Preview(EffectSettingsAccess &access, bool dryOnly) override;
+   std::any BeginPreview(const EffectSettings &settings) override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
    double CalcPreviewInputLength(
@@ -79,6 +80,8 @@ private:
    void Update_Text_PitchHalfStepsEnd();
    void Update_Slider_RatePercentChangeStart();
    void Update_Slider_RatePercentChangeEnd();
+
+   wxWeakRef<wxWindow> mUIParent{};
 
    bool bPreview;
    double previewSelectedDuration;

@@ -32,10 +32,7 @@ set( SOURCES
    TrackAttachment.h
 )
 set( LIBRARIES
-   lib-project-interface
-   lib-xml-interface
-   PRIVATE
-   wxBase
+   lib-project-history-interface
 )
 audacity_library( lib-track "${SOURCES}" "${LIBRARIES}"
    "" ""

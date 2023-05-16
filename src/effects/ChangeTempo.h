@@ -22,7 +22,8 @@
 #endif
 
 #include "SoundTouchEffect.h"
-#include "../ShuttleAutomation.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class wxSlider;
 class wxCheckBox;
@@ -57,9 +58,9 @@ public:
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
    double CalcPreviewInputLength(
       const EffectSettings &settings, double previewLength) const override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -80,6 +81,8 @@ private:
    void Update_Text_ToLength(); // Use m_FromLength & m_PercentChange to set NEW m_ToLength & control.
 
 private:
+   wxWeakRef<wxWindow> mUIParent{};
+
    bool           mUseSBSMS;
    double         m_PercentChange;  // percent change to apply to tempo
                                     // -100% is meaningless, but sky's the upper limit

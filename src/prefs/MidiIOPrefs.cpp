@@ -31,15 +31,14 @@ other settings.
 #include <wx/defs.h>
 
 #include <wx/choice.h>
-#include <wx/intl.h>
 #include <wx/textctrl.h>
 
 #include <portmidi.h>
 
 #include "NoteTrack.h"
 #include "Prefs.h"
-#include "../ShuttleGui.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "ShuttleGui.h"
+#include "AudacityMessageBox.h"
 
 enum {
    HostID = 10000,

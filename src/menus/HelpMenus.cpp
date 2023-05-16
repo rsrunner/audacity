@@ -6,37 +6,34 @@
 
 #include "../AboutDialog.h"
 #include "AllThemeResources.h"
-#include "AudioIOBase.h"
+#include "AudioIO.h"
 #include "../CommonCommandFlags.h"
 #include "../CrashReport.h" // for HAS_CRASH_REPORT
 #include "FileNames.h"
-#include "../HelpText.h"
+#include "HelpText.h"
 #include "../HelpUtilities.h"
-#include "../LogWindow.h"
+#include "LogWindow.h"
 #include "../Menus.h"
-#include "../NoteTrack.h"
 #include "Prefs.h"
 #include "Project.h"
+#include "ProjectSnap.h"
 #include "../ProjectSelectionManager.h"
 #include "../ProjectWindows.h"
-#include "../SelectFile.h"
-#include "../ShuttleGui.h"
+#include "SelectFile.h"
+#include "ShuttleGui.h"
 #include "../SplashDialog.h"
+#include "SyncLock.h"
 #include "Theme.h"
 #include "../commands/CommandContext.h"
 #include "../commands/CommandManager.h"
 #include "../prefs/PrefsDialog.h"
-#include "../widgets/AudacityMessageBox.h"
-#include "../widgets/HelpSystem.h"
+#include "AudacityMessageBox.h"
+#include "HelpSystem.h"
 
 #include "FrameStatisticsDialog.h"
 
 #if defined(HAVE_UPDATES_CHECK)
 #include "update/UpdateManager.h"
-#endif
-
-#ifdef HAS_AUDIOCOM_UPLOAD
-#include "cloud/audiocom/LinkAccountDialog.h"
 #endif
 
 // private helper classes and functions
@@ -91,11 +88,9 @@ QuickFixDialog::QuickFixDialog(wxWindow * pParent, AudacityProject &project) :
             wxDEFAULT_DIALOG_STYLE )
       , mProject{ project }
 {
-   const long SNAP_OFF = 0;
-
-   gPrefs->Read(wxT("/GUI/SyncLockTracks"), &mbSyncLocked, false);
-   mbInSnapTo = gPrefs->Read(wxT("/SnapTo"), SNAP_OFF) !=0;
-   gPrefs->Read(wxT("/AudioIO/SoundActivatedRecord"), &mbSoundActivated, false);
+   mbSyncLocked = SyncLockTracks.Read();
+   mbInSnapTo = ProjectSnap(project).GetSnapMode() != SnapMode::SNAP_OFF; gPrefs->Read(wxT("/SnapTo"));
+   mbSoundActivated = SoundActivatedRecord.Read();
 
    ShuttleGui S(this, eIsCreating);
    PopulateOrExchange(S);
@@ -163,9 +158,9 @@ void QuickFixDialog::PopulateOrExchange(ShuttleGui & S)
          mItem = -1;
 
          auto defaultAction =
-         [](AudacityProject *pProject, const wxString &path){ return
-            [pProject, path]{
-               gPrefs->Write(path, 0);
+         [](AudacityProject *pProject, BoolSetting &setting){ return
+            [pProject, &setting]{
+               setting.Reset();
                gPrefs->Flush();
                // This is overkill (aka slow), as all preferences are
                // reloaded and all
@@ -180,20 +175,18 @@ void QuickFixDialog::PopulateOrExchange(ShuttleGui & S)
          // Local help may well not be installed.
          auto pProject = &mProject;
          AddStuck( S, mbSyncLocked,
-            defaultAction( pProject, "/GUI/SyncLockTracks" ),
+            defaultAction( pProject, SyncLockTracks ),
             XO("Clocks on the Tracks"), "Quick_Fix#sync_lock" );
          AddStuck( S, mbInSnapTo,
             [pProject] {
-               gPrefs->Write( "/SnapTo", 0 );
-               gPrefs->Flush();
                // Sadly SnapTo has to be handled specially,
                // as it is not part of the standard
                // preference dialogs.
-               ProjectSelectionManager::Get( *pProject ).AS_SetSnapTo( 0 );
+               ProjectSnap::Get( *pProject ).SetSnapMode( SnapMode::SNAP_OFF );
             },
             XO("Can't select precisely"), "Quick_Fix#snap_to" );
          AddStuck( S, mbSoundActivated,
-            defaultAction( pProject, "/AudioIO/SoundActivatedRecord" ),
+            defaultAction( pProject, SoundActivatedRecord ),
             XO("Recording stops and starts"),
             "Quick_Fix#sound_activated_recording" );
       }
@@ -249,13 +242,9 @@ void QuickFixDialog::OnFix(const PrefSetter &setter, wxWindowID id)
 
 }
 
-namespace HelpActions {
-
-// exported helper functions
+namespace {
 
 // Menu handler functions
-
-struct Handler : CommandHandlerObject {
 
 void OnQuickFix(const CommandContext &context)
 {
@@ -341,7 +330,7 @@ void OnMenuTree(const CommandContext &context)
       using ToolbarMenuVisitor::ToolbarMenuVisitor;
 
       enum : unsigned { TAB = 3 };
-      void DoBeginGroup( GroupItem &item, const Path& ) override
+      void DoBeginGroup( GroupItemBase &item, const Path& ) override
       {
          if ( dynamic_cast<MenuItem*>( &item ) ) {
             Indent();
@@ -352,7 +341,7 @@ void OnMenuTree(const CommandContext &context)
          }
       }
 
-      void DoEndGroup( GroupItem &item, const Path& ) override
+      void DoEndGroup( GroupItemBase &item, const Path& ) override
       {
          if ( dynamic_cast<MenuItem*>( &item ) )
             indentation = wxString{ ' ', TAB * --level };
@@ -400,14 +389,6 @@ void OnCheckForUpdates(const CommandContext &WXUNUSED(context))
 }
 #endif
 
-#ifdef HAS_AUDIOCOM_UPLOAD
-void OnLinkAccount(const CommandContext&)
-{
-   cloud::audiocom::LinkAccountDialog dialog;
-   dialog.ShowModal();
-}
-#endif
-
 void OnAbout(const CommandContext &context)
 {
 #ifdef __WXMAC__
@@ -444,45 +425,30 @@ void OnHelpWelcome(const CommandContext &context)
 
 #endif
 
-}; // struct Handler
-
-} // namespace
-
-static CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static HelpActions::Handler instance;
-   return instance;
-};
-
 // Menu definitions
 
-#define FN(X) (& HelpActions::Handler :: X)
-
-namespace {
 using namespace MenuTable;
 BaseItemSharedPtr HelpMenu()
 {
    static BaseItemSharedPtr menu{
-   ( FinderScope{ findCommandHandler },
    Menu( wxT("Help"), XXO("&Help"),
       Section( "Basic",
          // QuickFix menu item not in Audacity 2.3.1 whilst we discuss further.
    #ifdef EXPERIMENTAL_DA
          // DA: Has QuickFix menu item.
-         Command( wxT("QuickFix"), XXO("&Quick Fix..."), FN(OnQuickFix),
+         Command( wxT("QuickFix"), XXO("&Quick Fix..."), OnQuickFix,
             AlwaysEnabledFlag ),
          // DA: 'Getting Started' rather than 'Quick Help'.
-         Command( wxT("QuickHelp"), XXO("&Getting Started"), FN(OnQuickHelp),
+         Command( wxT("QuickHelp"), XXO("&Getting Started"), OnQuickHelp,
             AlwaysEnabledFlag ),
          // DA: Emphasise it is the Audacity Manual (No separate DA manual).
-         Command( wxT("Manual"), XXO("Audacity &Manual"), FN(OnManual),
+         Command( wxT("Manual"), XXO("Audacity &Manual"), OnManual,
             AlwaysEnabledFlag )
 
    #else
-         Command( wxT("QuickHelp"), XXO("&Quick Help..."), FN(OnQuickHelp),
+         Command( wxT("QuickHelp"), XXO("&Quick Help..."), OnQuickHelp,
             AlwaysEnabledFlag ),
-         Command( wxT("Manual"), XXO("&Manual..."), FN(OnManual),
+         Command( wxT("Manual"), XXO("&Manual..."), OnManual,
             AlwaysEnabledFlag )
    #endif
       ),
@@ -495,13 +461,13 @@ BaseItemSharedPtr HelpMenu()
       ( "Other",
          Menu( wxT("Diagnostics"), XXO("&Diagnostics"),
             Command( wxT("DeviceInfo"), XXO("Au&dio Device Info..."),
-               FN(OnAudioDeviceInfo),
+               OnAudioDeviceInfo,
                AudioIONotBusyFlag() ),
-            Command( wxT("Log"), XXO("Show &Log..."), FN(OnShowLog),
+            Command( wxT("Log"), XXO("Show &Log..."), OnShowLog,
                AlwaysEnabledFlag ),
       #if defined(HAS_CRASH_REPORT)
             Command( wxT("CrashReport"), XXO("&Generate Support Data..."),
-               FN(OnCrashReport), AlwaysEnabledFlag )
+               OnCrashReport, AlwaysEnabledFlag )
       #endif
 
       #ifdef IS_ALPHA
@@ -510,55 +476,44 @@ BaseItemSharedPtr HelpMenu()
             // Verbatim for labels
 
             Command( wxT("RaiseSegfault"), Verbatim("Test segfault report"),
-               FN(OnSegfault), AlwaysEnabledFlag ),
+               OnSegfault, AlwaysEnabledFlag ),
 
             Command( wxT("ThrowException"), Verbatim("Test exception report"),
-               FN(OnException), AlwaysEnabledFlag ),
+               OnException, AlwaysEnabledFlag ),
 
             Command( wxT("ViolateAssertion"), Verbatim("Test assertion report"),
-               FN(OnAssertion), AlwaysEnabledFlag ),
+               OnAssertion, AlwaysEnabledFlag ),
 
             // Menu explorer.  Perhaps this should become a macro command
             Command( wxT("MenuTree"), Verbatim("Menu Tree..."),
-               FN(OnMenuTree),
+               OnMenuTree,
                AlwaysEnabledFlag ),
               
             Command(
                  wxT("FrameStatistics"), Verbatim("Frame Statistics..."),
-                 FN(OnFrameStatistics),
+                 OnFrameStatistics,
                  AlwaysEnabledFlag)
       #endif
          )
-   #ifndef __WXMAC__
       ),
 
-      Section( "",
-#else
-      ,
-#endif
-#ifdef HAS_AUDIOCOM_UPLOAD
-         Command(
-            wxT("LinkAccount"), XXO("L&ink audio.com account..."),
-            FN(OnLinkAccount), AlwaysEnabledFlag),
-#endif
+      Section( "Extra",
          // DA: Does not fully support update checking.
    #if !defined(EXPERIMENTAL_DA) && defined(HAVE_UPDATES_CHECK)
          Command( wxT("Updates"), XXO("&Check for Updates..."),
-            FN(OnCheckForUpdates),
+            OnCheckForUpdates,
             AlwaysEnabledFlag ),
    #endif
-         Command( wxT("About"), XXO("&About Audacity"), FN(OnAbout),
+         Command( wxT("About"), XXO("&About Audacity"), OnAbout,
             AlwaysEnabledFlag )
       )
-   ) ) };
+   ) };
    return menu;
 }
 
 AttachedItem sAttachment1{
    wxT(""),
-   Shared( HelpMenu() )
+   Indirect(HelpMenu())
 };
 
 }
-
-#undef FN

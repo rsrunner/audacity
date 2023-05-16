@@ -23,23 +23,21 @@
   and/or distribute it under the same terms as Audacity itself.
 
 *//*******************************************************************/
-
-
 #include "ClickRemoval.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <math.h>
 
-#include <wx/intl.h>
 #include <wx/slider.h>
 #include <wx/valgen.h>
 
 #include "Prefs.h"
-#include "../ShuttleGui.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "ShuttleGui.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/valnum.h"
 
-#include "../WaveTrack.h"
+#include "WaveTrack.h"
 
 enum
 {
@@ -140,7 +138,7 @@ bool EffectClickRemoval::Process(EffectInstance &, EffectSettings &)
       count++;
    }
    if (bGoodResult && !mbDidSomething) // Processing successful, but ineffective.
-      Effect::MessageBox(
+      EffectUIServices::DoMessageBox(*this,
          XO("Algorithm not effective on this audio. Nothing changed."),
          wxOK | wxICON_ERROR );
 
@@ -152,7 +150,7 @@ bool EffectClickRemoval::ProcessOne(int count, WaveTrack * track, sampleCount st
 {
    if (len <= windowSize / 2)
    {
-      Effect::MessageBox(
+      EffectUIServices::DoMessageBox(*this,
          XO("Selection must be larger than %d samples.")
             .Format(windowSize / 2),
          wxOK | wxICON_ERROR );
@@ -273,9 +271,11 @@ bool EffectClickRemoval::RemoveClicks(size_t len, float *buffer)
    return bResult;
 }
 
-std::unique_ptr<EffectUIValidator> EffectClickRemoval::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectClickRemoval::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    S.AddSpace(0, 5);
    S.SetBorder(10);
 

@@ -12,9 +12,10 @@
 #ifndef __AUDACITY_EFFECT_NORMALIZE__
 #define __AUDACITY_EFFECT_NORMALIZE__
 
-#include "Effect.h"
+#include "StatefulEffect.h"
 #include "Biquad.h"
-#include "../ShuttleAutomation.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class wxCheckBox;
 class wxStaticText;
@@ -45,9 +46,9 @@ public:
 
    bool CheckWhetherSkipEffect(const EffectSettings &settings) const override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
@@ -67,6 +68,8 @@ private:
    void UpdateUI();
 
 private:
+   wxWeakRef<wxWindow> mUIParent{};
+
    double mPeakLevel;
    bool   mGain;
    bool   mDC;

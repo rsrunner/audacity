@@ -33,11 +33,9 @@ effects from this one class.
 
 #include <locale.h>
 
-#include <wx/button.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include <wx/datetime.h>
-#include <wx/intl.h>
 #include <wx/log.h>
 #include <wx/scrolwin.h>
 #include <wx/sizer.h>
@@ -53,35 +51,36 @@ effects from this one class.
 #include <wx/stdpaths.h>
 
 #include "BasicUI.h"
+#include "../EffectEditor.h"
 #include "../EffectManager.h"
 #include "FileNames.h"
 #include "../../LabelTrack.h"
 #include "Languages.h"
 #include "../../NoteTrack.h"
-#include "../../TimeTrack.h"
+#include "TimeTrack.h"
 #include "../../prefs/SpectrogramSettings.h"
 #include "PluginManager.h"
 #include "Project.h"
 #include "ProjectRate.h"
-#include "../../ShuttleAutomation.h"
+#include "ShuttleAutomation.h"
 #include "../../ShuttleGetDefinition.h"
-#include "../../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "TempDirectory.h"
 #include "SyncLock.h"
 #include "ViewInfo.h"
-#include "../../WaveClip.h"
-#include "../../WaveTrack.h"
+#include "WaveClip.h"
+#include "WaveTrack.h"
 #include "../../widgets/valnum.h"
-#include "../../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 #include "Prefs.h"
 #include "wxFileNameWrapper.h"
 #include "../../prefs/GUIPrefs.h"
 #include "../../tracks/playabletrack/wavetrack/ui/WaveTrackView.h"
 #include "../../tracks/playabletrack/wavetrack/ui/WaveTrackViewConstants.h"
 #include "../../widgets/NumericTextCtrl.h"
-#include "../../widgets/ProgressDialog.h"
+#include "ProgressDialog.h"
 
-#include "../../widgets/FileDialog/FileDialog.h"
+#include "FileDialog/FileDialog.h"
 
 #ifndef nyx_returns_start_and_end_time
 #error You need to update lib-src/libnyquist
@@ -111,7 +110,7 @@ enum
 };
 
 // Protect Nyquist from selections greater than 2^31 samples (bug 439)
-#define NYQ_MAX_LEN (std::numeric_limits<long>::max())
+#define NYQ_MAX_LEN (std::numeric_limits<int64_t>::max())
 
 #define UNINITIALIZED_CONTROL ((double)99999999.99)
 
@@ -141,11 +140,11 @@ BEGIN_EVENT_TABLE(NyquistEffect, wxEvtHandler)
 END_EVENT_TABLE()
 
 NyquistEffect::NyquistEffect(const wxString &fName)
+   : mIsPrompt{ fName == NYQUIST_PROMPT_ID }
 {
    mOutputTrack[0] = mOutputTrack[1] = nullptr;
 
    mAction = XO("Applying Nyquist Effect...");
-   mIsPrompt = false;
    mExternal = false;
    mCompiler = false;
    mTrace = false;
@@ -171,14 +170,13 @@ NyquistEffect::NyquistEffect(const wxString &fName)
    mMaxLen = NYQ_MAX_LEN;
 
    // Interactive Nyquist
-   if (fName == NYQUIST_PROMPT_ID) {
+   if (mIsPrompt) {
       mName = NYQUIST_PROMPT_NAME;
       mType = EffectTypeTool;
       mIsTool = true;
       mPromptName = mName;
       mPromptType = mType;
       mOK = true;
-      mIsPrompt = true;
       return;
    }
 
@@ -197,7 +195,7 @@ NyquistEffect::NyquistEffect(const wxString &fName)
    ParseFile();
 
    if (!mOK && mInitError.empty())
-      mInitError = XO("Ill-formed Nyquist plug-in header");   
+      mInitError = XO("Ill-formed Nyquist plug-in header");
 }
 
 NyquistEffect::~NyquistEffect()
@@ -587,45 +585,47 @@ bool NyquistEffect::Init()
    // selected track(s) - (but don't apply to Nyquist Prompt).
 
    if (!mIsPrompt && mIsSpectral) {
-      auto *project = FindProject();
-      bool bAllowSpectralEditing = false;
-      bool hasSpectral = false;
-
-      for ( auto t :
-               TrackList::Get( *project ).Selected< const WaveTrack >() ) {
-         // Find() not Get() to avoid creation-on-demand of views in case we are
-         // only previewing
-         auto pView = WaveTrackView::Find( t );
-         if ( pView ) {
-            const auto displays = pView->GetDisplays();
-            if (displays.end() != std::find(
-               displays.begin(), displays.end(),
-               WaveTrackSubView::Type{ WaveTrackViewConstants::Spectrum, {} }))
-               hasSpectral = true;
+      // Completely skip the spectral editing limitations if there is no
+      // project because that is editing of macro parameters
+      if (const auto project = FindProject()) {
+         bool bAllowSpectralEditing = false;
+         bool hasSpectral = false;
+         for ( auto t :
+                  TrackList::Get( *project ).Selected< const WaveTrack >() ) {
+            // Find() not Get() to avoid creation-on-demand of views in case we are
+            // only previewing
+            auto pView = WaveTrackView::Find( t );
+            if ( pView ) {
+               const auto displays = pView->GetDisplays();
+               if (displays.end() != std::find(
+                  displays.begin(), displays.end(),
+                  WaveTrackSubView::Type{ WaveTrackViewConstants::Spectrum, {} }))
+                  hasSpectral = true;
+            }
+            if ( hasSpectral &&
+                (SpectrogramSettings::Get(*t).SpectralSelectionEnabled())) {
+               bAllowSpectralEditing = true;
+               break;
+            }
          }
-         if ( hasSpectral &&
-             (t->GetSpectrogramSettings().SpectralSelectionEnabled())) {
-            bAllowSpectralEditing = true;
-            break;
-         }
-      }
 
-      if (!bAllowSpectralEditing || ((mF0 < 0.0) && (mF1 < 0.0))) {
-         if (!hasSpectral) {
-            Effect::MessageBox(
-            XO("Enable track spectrogram view before\n"
-            "applying 'Spectral' effects."),
-            wxOK | wxICON_EXCLAMATION | wxCENTRE,
-            XO("Error") );
-         } else {
-            Effect::MessageBox(
-               XO("To use 'Spectral effects', enable 'Spectral Selection'\n"
-                           "in the track Spectrogram settings and select the\n"
-                           "frequency range for the effect to act on."),
+         if (!bAllowSpectralEditing || ((mF0 < 0.0) && (mF1 < 0.0))) {
+            if (!hasSpectral) {
+               EffectUIServices::DoMessageBox(*this,
+               XO("Enable track spectrogram view before\n"
+               "applying 'Spectral' effects."),
                wxOK | wxICON_EXCLAMATION | wxCENTRE,
                XO("Error") );
+            } else {
+               EffectUIServices::DoMessageBox(*this,
+                  XO("To use 'Spectral effects', enable 'Spectral Selection'\n"
+                              "in the track Spectrogram settings and select the\n"
+                              "frequency range for the effect to act on."),
+                  wxOK | wxICON_EXCLAMATION | wxCENTRE,
+                  XO("Error") );
+            }
+            return false;
          }
-         return false;
       }
    }
 
@@ -651,7 +651,8 @@ bool NyquistEffect::Init()
          ParseFile();
          mFileModified = mFileName.GetModificationTime();
 
-         LoadUserPreset(key, dummySettings);
+         // Ignore failure
+         (void) LoadUserPreset(key, dummySettings);
       }
    }
 
@@ -857,7 +858,7 @@ bool NyquistEffect::Process(EffectInstance &, EffectSettings &settings)
    // Nyquist Prompt does not require a selection, but effects do.
    if (!bOnePassTool && (mNumSelectedChannels == 0)) {
       auto message = XO("Audio selection required.");
-      Effect::MessageBox(
+      EffectUIServices::DoMessageBox(*this,
          message,
          wxOK | wxCENTRE | wxICON_EXCLAMATION,
          XO("Nyquist Error") );
@@ -896,7 +897,7 @@ bool NyquistEffect::Process(EffectInstance &, EffectSettings &settings)
 
                mCurTrack[1] = * ++ channels.first;
                if (mCurTrack[1]->GetRate() != mCurTrack[0]->GetRate()) {
-                  Effect::MessageBox(
+                  EffectUIServices::DoMessageBox(*this,
                      XO(
 "Sorry, cannot apply effect on stereo tracks where the tracks don't match."),
                      wxOK | wxCENTRE );
@@ -915,20 +916,7 @@ bool NyquistEffect::Process(EffectInstance &, EffectSettings &settings)
             auto end = mCurTrack[0]->TimeToLongSamples(mT1);
             mCurLen = end - mCurStart[0];
 
-            if (mCurLen > NYQ_MAX_LEN) {
-               float hours = (float)NYQ_MAX_LEN / (44100 * 60 * 60);
-               const auto message =
-                  XO(
-"Selection too long for Nyquist code.\nMaximum allowed selection is %ld samples\n(about %.1f hours at 44100 Hz sample rate).")
-                     .Format((long)NYQ_MAX_LEN, hours);
-               Effect::MessageBox(
-                  message,
-                  wxOK | wxCENTRE,
-                  XO("Nyquist Error") );
-               if (!mProjectChanged)
-                  em.SetSkipStateFlag(true);
-               return false;
-            }
+            wxASSERT(mCurLen <= NYQ_MAX_LEN);
 
             mCurLen = std::min(mCurLen, mMaxLen);
          }
@@ -1020,7 +1008,7 @@ finish:
    mDebug = (mTrace && !mDebugOutput.Translation().empty())? true : mDebug;
 
    if (mDebug && !mRedirectOutput) {
-      NyquistOutputDialog dlog(mUIParent, -1,
+      NyquistOutputDialog dlog(nullptr, -1,
                                mName,
                                XO("Debug Output: "),
                                mDebugOutput);
@@ -1053,7 +1041,7 @@ finish:
    return success;
 }
 
-int NyquistEffect::ShowHostInterface(
+int NyquistEffect::ShowHostInterface(EffectPlugin &plugin,
    wxWindow &parent, const EffectDialogFactory &factory,
    std::shared_ptr<EffectInstance> &pInstance, EffectSettingsAccess &access,
    bool forceModal)
@@ -1061,7 +1049,7 @@ int NyquistEffect::ShowHostInterface(
    int res = wxID_APPLY;
    if (!(Effect::TestUIFlags(EffectManager::kRepeatNyquistPrompt) && mIsPrompt)) {
       // Show the normal (prompt or effect) interface
-      res = Effect::ShowHostInterface(
+      res = EffectUIServices::ShowHostInterface(plugin,
          parent, factory, pInstance, access, forceModal);
    }
 
@@ -1100,7 +1088,8 @@ int NyquistEffect::ShowHostInterface(
       effect.LoadSettings(cp, newSettings);
 
       // Show the normal (prompt or effect) interface
-      res = effect.ShowHostInterface(
+      // Don't pass this as first argument, pass the worker to itself
+      res = effect.ShowHostInterface(effect,
          parent, factory, pNewInstance, *newAccess, forceModal);
       if (res) {
          CommandParameters cp;
@@ -1111,7 +1100,8 @@ int NyquistEffect::ShowHostInterface(
    else {
       if (!factory)
          return 0;
-      res = effect.ShowHostInterface(
+      // Don't pass this as first argument, pass the worker to itself
+      res = effect.ShowHostInterface(effect,
          parent, factory, pNewInstance, *newAccess, false );
       if (!res)
          return 0;
@@ -1122,6 +1112,7 @@ int NyquistEffect::ShowHostInterface(
          nyquistSettings.proxySettings = std::move(newSettings);
          nyquistSettings.proxyDebug = this->mDebug;
          nyquistSettings.controls = move(effect.mControls);
+         return nullptr;
       });
    }
    if (!pNewInstance)
@@ -1130,9 +1121,11 @@ int NyquistEffect::ShowHostInterface(
    return res;
 }
 
-std::unique_ptr<EffectUIValidator> NyquistEffect::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> NyquistEffect::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    if (mIsPrompt)
       BuildPromptWindow(S);
    else
@@ -1161,7 +1154,7 @@ bool NyquistEffect::TransferDataToWindow(const EffectSettings &)
 
    if (success)
    {
-      EnablePreview(mEnablePreview);
+      EffectEditor::EnablePreview(mUIParent, mEnablePreview);
    }
 
    return success;
@@ -1220,7 +1213,8 @@ bool NyquistEffect::ProcessOne()
       mCurTrack[0]->TypeSwitch(
          [&](const WaveTrack *wt) {
             type = wxT("wave");
-            spectralEditp = mCurTrack[0]->GetSpectrogramSettings().SpectralSelectionEnabled()? wxT("T") : wxT("NIL");
+            spectralEditp = SpectrogramSettings::Get(*mCurTrack[0])
+               .SpectralSelectionEnabled()? wxT("T") : wxT("NIL");
             view = wxT("NIL");
             // Find() not Get() to avoid creation-on-demand of views in case we are
             // only previewing
@@ -1539,7 +1533,8 @@ bool NyquistEffect::ProcessOne()
       if (GetType() == EffectTypeTool) {
          mProjectChanged = true;
       } else {
-         Effect::MessageBox(XO("Nyquist returned a list.") );
+         EffectUIServices::DoMessageBox(*this,
+            XO("Nyquist returned a list.") );
       }
       return true;
    }
@@ -1550,7 +1545,7 @@ bool NyquistEffect::ProcessOne()
       // is communicated back to C++
       auto msg = Verbatim( NyquistToWxString(nyx_get_string()) );
       if (!msg.empty()) { // Empty string may be used as a No-Op return value.
-         Effect::MessageBox( msg );
+         EffectUIServices::DoMessageBox(*this, msg);
       }
       else if (GetType() == EffectTypeTool) {
          // ;tools may change the project with aud-do commands so
@@ -1573,14 +1568,14 @@ bool NyquistEffect::ProcessOne()
    if (rval == nyx_double) {
       auto str = XO("Nyquist returned the value: %f")
          .Format(nyx_get_double());
-      Effect::MessageBox( str );
+      EffectUIServices::DoMessageBox(*this, str);
       return (GetType() != EffectTypeProcess || mIsPrompt);
    }
 
    if (rval == nyx_int) {
       auto str = XO("Nyquist returned the value: %d")
          .Format(nyx_get_int());
-      Effect::MessageBox( str );
+      EffectUIServices::DoMessageBox(*this, str);
       return (GetType() != EffectTypeProcess || mIsPrompt);
    }
 
@@ -1614,18 +1609,20 @@ bool NyquistEffect::ProcessOne()
 
    int outChannels = nyx_get_audio_num_channels();
    if (outChannels > (int)mCurNumChannels) {
-      Effect::MessageBox( XO("Nyquist returned too many audio channels.\n") );
+      EffectUIServices::DoMessageBox(*this,
+         XO("Nyquist returned too many audio channels.\n"));
       return false;
    }
 
    if (outChannels == -1) {
-      Effect::MessageBox(
-         XO("Nyquist returned one audio channel as an array.\n") );
+      EffectUIServices::DoMessageBox(*this,
+         XO("Nyquist returned one audio channel as an array.\n"));
       return false;
    }
 
    if (outChannels == 0) {
-      Effect::MessageBox( XO("Nyquist returned an empty array.\n") );
+      EffectUIServices::DoMessageBox(*this,
+         XO("Nyquist returned an empty array.\n"));
       return false;
    }
 
@@ -1669,7 +1666,8 @@ bool NyquistEffect::ProcessOne()
       mOutputTime = outputTrack[i]->GetEndTime();
 
       if (mOutputTime <= 0) {
-         Effect::MessageBox( XO("Nyquist returned nil audio.\n") );
+         EffectUIServices::DoMessageBox(
+            *this, XO("Nyquist returned nil audio.\n"));
          return false;
       }
    }
@@ -2312,7 +2310,7 @@ bool NyquistEffect::Parse(
                         tokens[3], mFileName.GetFullPath());
 
                // Too disturbing to show alert before Audacity frame is up.
-               //    Effect::MessageBox(
+               //    EffectUIServices::DoMessageBox(*this,
                //       str,
                //       wxOK | wxICON_EXCLAMATION,
                //       XO("Nyquist Warning") );
@@ -2463,12 +2461,12 @@ bool NyquistEffect::ParseProgram(wxInputStream & stream)
    {
       /* i1n-hint: SAL and LISP are names for variant syntaxes for the
        Nyquist programming language.  Leave them, and 'return', untranslated. */
-      Effect::MessageBox(
+      EffectUIServices::DoMessageBox(*this,
          XO(
 "Your code looks like SAL syntax, but there is no \'return\' statement.\n\
 For SAL, use a return statement such as:\n\treturn *track* * 0.1\n\
 or for LISP, begin with an open parenthesis such as:\n\t(mult *track* 0.1)\n ."),
-         Effect::DefaultMessageBoxStyle,
+         EffectUIServices::DefaultMessageBoxStyle,
          XO("Error in Nyquist code") );
       /* i18n-hint: refers to programming "languages" */
       mInitError = XO("Could not determine language");
@@ -2771,7 +2769,7 @@ bool NyquistEffect::TransferDataFromEffectWindow()
                   {
                      const auto message =
                         XO("\"%s\" is not a valid file path.").Format( token );
-                     Effect::MessageBox(
+                     EffectUIServices::DoMessageBox(*this,
                         message,
                         wxOK | wxICON_EXCLAMATION | wxCENTRE,
                         XO("Error") );
@@ -2785,7 +2783,7 @@ bool NyquistEffect::TransferDataFromEffectWindow()
                const auto message =
                   /* i18n-hint: Warning that there is one quotation mark rather than a pair.*/
                   XO("Mismatched quotes in\n%s").Format( ctrl->valStr );
-               Effect::MessageBox(
+               EffectUIServices::DoMessageBox(*this,
                   message,
                   wxOK | wxICON_EXCLAMATION | wxCENTRE,
                   XO("Error") );
@@ -2801,7 +2799,7 @@ bool NyquistEffect::TransferDataFromEffectWindow()
          // Validation failed
          const auto message =
             XO("\"%s\" is not a valid file path.").Format( ctrl->valStr );
-         Effect::MessageBox(
+         EffectUIServices::DoMessageBox(*this,
             message,
             wxOK | wxICON_EXCLAMATION | wxCENTRE,
             XO("Error") );
@@ -2951,11 +2949,11 @@ void NyquistEffect::BuildEffectWindow(ShuttleGui & S)
                                           .ReadOnly(false);
 
                   NumericTextCtrl *time = safenew
-                     NumericTextCtrl(S.GetParent(), (ID_Time + i),
-                                     NumericConverter::TIME,
+                     NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                                     S.GetParent(), (ID_Time + i),
+                                     NumericConverterType_TIME(),
                                      GetSelectionFormat(),
                                      ctrl.val,
-                                     mProjectRate,
                                      options);
                   S
                      .Name( prompt )
@@ -3074,7 +3072,7 @@ void NyquistEffect::OnLoad(wxCommandEvent & WXUNUSED(evt))
 {
    if (mCommandText->IsModified())
    {
-      if (wxNO == Effect::MessageBox(
+      if (wxNO == EffectUIServices::DoMessageBox(*this,
          XO("Current program has been modified.\nDiscard changes?"),
          wxYES_NO ) )
       {
@@ -3104,7 +3102,7 @@ void NyquistEffect::OnLoad(wxCommandEvent & WXUNUSED(evt))
 
    if (!mCommandText->LoadFile(mFileName.GetFullPath()))
    {
-      Effect::MessageBox( XO("File could not be loaded") );
+      EffectUIServices::DoMessageBox(*this, XO("File could not be loaded"));
    }
 }
 
@@ -3131,7 +3129,7 @@ void NyquistEffect::OnSave(wxCommandEvent & WXUNUSED(evt))
 
    if (!mCommandText->SaveFile(mFileName.GetFullPath()))
    {
-      Effect::MessageBox( XO("File could not be saved") );
+      EffectUIServices::DoMessageBox(*this, XO("File could not be saved"));
    }
 }
 
@@ -3187,7 +3185,7 @@ void NyquistEffect::OnTime(wxCommandEvent& evt)
       if (val < ctrl.low || val > ctrl.high) {
          const auto message = XO("Value range:\n%s to %s")
             .Format( ToTimeFormat(ctrl.low), ToTimeFormat(ctrl.high) );
-         Effect::MessageBox(
+         EffectUIServices::DoMessageBox(*this,
             message,
             wxOK | wxCENTRE,
             XO("Value Error") );

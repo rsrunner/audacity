@@ -11,8 +11,9 @@
 #ifndef __AUDACITY_EFFECT_REPEAT__
 #define __AUDACITY_EFFECT_REPEAT__
 
-#include "Effect.h"
-#include "../ShuttleAutomation.h"
+#include "StatefulEffect.h"
+#include "ShuttleAutomation.h"
+#include <wx/weakref.h>
 
 class wxTextCtrl;
 class ShuttleGui;
@@ -42,17 +43,21 @@ public:
    // Effect implementation
 
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> PopulateOrExchange(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs) override;
    bool TransferDataToWindow(const EffectSettings &settings) override;
    bool TransferDataFromWindow(EffectSettings &settings) override;
+
+   bool NeedsDither() const override;
 
 private:
    // EffectRepeat implementation
 
    void OnRepeatTextChange(wxCommandEvent & evt);
    void DisplayNewTime();
+
+   wxWeakRef<wxWindow> mUIParent{};
 
    int repeatCount;
 
@@ -68,4 +73,3 @@ static constexpr EffectParameter Count{ &EffectRepeat::repeatCount,
 };
 
 #endif
-

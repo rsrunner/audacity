@@ -13,19 +13,19 @@
 #include "Contrast.h"
 
 #include "../CommonCommandFlags.h"
-#include "../WaveTrack.h"
+#include "WaveTrack.h"
 #include "Prefs.h"
 #include "Project.h"
-#include "../ProjectFileIO.h"
+#include "ProjectFileIO.h"
 #include "ProjectRate.h"
 #include "../ProjectWindow.h"
-#include "../SelectFile.h"
-#include "../ShuttleGui.h"
+#include "SelectFile.h"
+#include "ShuttleGui.h"
 #include "FileNames.h"
 #include "ViewInfo.h"
-#include "../widgets/HelpSystem.h"
+#include "HelpSystem.h"
 #include "../widgets/NumericTextCtrl.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/VetoDialogHook.h"
 
 #include <cmath>
@@ -44,6 +44,8 @@
 #include <wx/textctrl.h>
 
 #include "PlatformCompatibility.h"
+
+#include "NumericConverterFormats.h"
 
 #define DB_MAX_LIMIT 0.0   // Audio is massively distorted.
 #define WCAG2_PASS 20.0    // dB difference required to pass WCAG2 test.
@@ -126,7 +128,7 @@ bool ContrastDialog::GetDB(float &dB)
 
    // Gives warning C4056, Overflow in floating-point constant arithmetic
    // -INFINITY is intentional here.
-   // Looks like we are stuck with this warning, as 
+   // Looks like we are stuck with this warning, as
    // #pragma warning( disable : 4056)
    // even around the whole function does not disable it successfully.
 
@@ -248,11 +250,11 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
          if (S.GetMode() == eIsCreating)
          {
             mForegroundStartT = safenew
-               NumericTextCtrl(S.GetParent(), ID_FOREGROUNDSTART_T,
-                         NumericConverter::TIME,
-                         NumericConverter::HundredthsFormat(),
+               NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                         S.GetParent(), ID_FOREGROUNDSTART_T,
+                         NumericConverterType_TIME(),
+                         NumericConverterFormats::HundredthsFormat(),
                          0.0,
-                         mProjectRate,
                          options);
          }
          S.Name(XO("Foreground start time"))
@@ -261,11 +263,11 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
          if (S.GetMode() == eIsCreating)
          {
             mForegroundEndT = safenew
-               NumericTextCtrl(S.GetParent(), ID_FOREGROUNDEND_T,
-                         NumericConverter::TIME,
-                         NumericConverter::HundredthsFormat(),
+               NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                         S.GetParent(), ID_FOREGROUNDEND_T,
+                         NumericConverterType_TIME(),
+                         NumericConverterFormats::HundredthsFormat(),
                          0.0,
-                         mProjectRate,
                          options);
          }
          S.Name(XO("Foreground end time"))
@@ -282,11 +284,11 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
          if (S.GetMode() == eIsCreating)
          {
             mBackgroundStartT = safenew
-               NumericTextCtrl(S.GetParent(), ID_BACKGROUNDSTART_T,
-                         NumericConverter::TIME,
-                         NumericConverter::HundredthsFormat(),
+               NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                         S.GetParent(), ID_BACKGROUNDSTART_T,
+                         NumericConverterType_TIME(),
+                         NumericConverterFormats::HundredthsFormat(),
                          0.0,
-                         mProjectRate,
                          options);
          }
          S.Name(XO("Background start time"))
@@ -295,11 +297,11 @@ ContrastDialog::ContrastDialog(wxWindow * parent, wxWindowID id,
          if (S.GetMode() == eIsCreating)
          {
             mBackgroundEndT = safenew
-               NumericTextCtrl(S.GetParent(), ID_BACKGROUNDEND_T,
-                         NumericConverter::TIME,
-                         NumericConverter::HundredthsFormat(),
+               NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                         S.GetParent(), ID_BACKGROUNDEND_T,
+                         NumericConverterType_TIME(),
+                         NumericConverterFormats::HundredthsFormat(),
                          0.0,
-                         mProjectRate,
                          options);
          }
          S.Name(XO("Background end time"))
@@ -669,7 +671,7 @@ AttachedWindows::RegisteredFactory sContrastDialogKey{
 };
 
 // Define our extra menu item that invokes that factory
-struct Handler : CommandHandlerObject {
+namespace {
    void OnContrast(const CommandContext &context)
    {
       auto &project = context.project;
@@ -682,24 +684,16 @@ struct Handler : CommandHandlerObject {
          return;
       contrastDialog->Show();
    }
-};
-
-CommandHandlerObject &findCommandHandler(AudacityProject &) {
-   // Handler is not stateful.  Doesn't need a factory registered with
-   // AudacityProject.
-   static Handler instance;
-   return instance;
 }
 
 // Register that menu item
 
 using namespace MenuTable;
 AttachedItem sAttachment{ wxT("Analyze/Analyzers/Windows"),
-   ( FinderScope{ findCommandHandler },
-      Command( wxT("ContrastAnalyser"), XXO("Contrast..."),
-         &Handler::OnContrast,
-         AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag(),
-         wxT("Ctrl+Shift+T") ) )
+   Command( wxT("ContrastAnalyser"), XXO("Contrast..."),
+      OnContrast,
+      AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag(),
+      wxT("Ctrl+Shift+T") )
 };
 
 }

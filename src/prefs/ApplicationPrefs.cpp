@@ -22,9 +22,9 @@
 #include <wx/hyperlink.h>
 
 #include "Prefs.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 
-#include "ui/AccessibleLinksFormatter.h"
+#include "AccessibleLinksFormatter.h"
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -107,6 +107,7 @@ bool ApplicationPrefs::Commit()
 {
    ShuttleGui S(this, eIsSavingToPrefs);
    PopulateOrExchange(S);
+   DefaultUpdatesCheckingFlag.Invalidate();
 
    return true;
 }

@@ -12,15 +12,12 @@
 \brief An effect to add silence.
 
 *//*******************************************************************/
-
-
 #include "Silence.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
-#include <wx/intl.h>
-
-#include "../ShuttleGui.h"
-#include "../WaveTrack.h"
+#include "ShuttleGui.h"
+#include "WaveTrack.h"
 #include "../widgets/NumericTextCtrl.h"
 
 const ComponentInterfaceSymbol EffectSilence::Symbol
@@ -65,8 +62,9 @@ EffectType EffectSilence::GetType() const
 
 // Effect implementation
 
-std::unique_ptr<EffectUIValidator> EffectSilence::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &access)
+std::unique_ptr<EffectEditor> EffectSilence::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &access,
+   const EffectOutputs *)
 {
    S.StartVerticalLay();
    {
@@ -75,11 +73,11 @@ std::unique_ptr<EffectUIValidator> EffectSilence::PopulateOrExchange(
          S.AddPrompt(XXO("&Duration:"));
          auto &extra = access.Get().extra;
          mDurationT = safenew
-            NumericTextCtrl(S.GetParent(), wxID_ANY,
-                              NumericConverter::TIME,
+            NumericTextCtrl(FormatterContext::SampleRateContext(mProjectRate),
+                              S.GetParent(), wxID_ANY,
+                              NumericConverterType_TIME(),
                               extra.GetDurationFormat(),
                               extra.GetDuration(),
-                               mProjectRate,
                                NumericTextCtrl::Options{}
                                   .AutoPos(true));
          S.Name(XO("Duration"))

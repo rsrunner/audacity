@@ -41,15 +41,13 @@
 #include <wx/slider.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
-#include <wx/string.h>
 #include <wx/textctrl.h>
-#include <wx/timer.h>
 #include <wx/dcmemory.h>
 #include <wx/window.h>
 
 #include "sndfile.h"
 
-#include "widgets/FileDialog/FileDialog.h"
+#include "FileDialog/FileDialog.h"
 
 #include "AllThemeResources.h"
 #include "BasicUI.h"
@@ -62,17 +60,17 @@
 #include "../ProjectSettings.h"
 #include "../ProjectWindow.h"
 #include "../ProjectWindows.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "../TagsEditor.h"
 #include "Theme.h"
-#include "../WaveTrack.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "WaveTrack.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/Warning.h"
-#include "../widgets/HelpSystem.h"
+#include "HelpSystem.h"
 #include "AColor.h"
 #include "FileNames.h"
-#include "widgets/HelpSystem.h"
-#include "widgets/ProgressDialog.h"
+#include "HelpSystem.h"
+#include "ProgressDialog.h"
 #include "wxFileNameWrapper.h"
 
 //----------------------------------------------------------------------------
@@ -287,23 +285,7 @@ BEGIN_EVENT_TABLE(Exporter, wxEvtHandler)
 END_EVENT_TABLE()
 
 namespace {
-const auto PathStart = wxT("Exporters");
-
-static Registry::GroupItem &sRegistry()
-{
-   static Registry::TransparentGroupItem<> registry{ PathStart };
-   return registry;
-}
-
-struct ExporterItem final : Registry::SingleItem {
-   ExporterItem(
-      const Identifier &id, const Exporter::ExportPluginFactory &factory )
-      : SingleItem{ id }
-      , mFactory{ factory }
-   {}
-
-   Exporter::ExportPluginFactory mFactory;
-};
+   const auto PathStart = L"Exporters";
 
    using ExportPluginFactories = std::vector< Exporter::ExportPluginFactory >;
    ExportPluginFactories &sFactories()
@@ -313,14 +295,27 @@ struct ExporterItem final : Registry::SingleItem {
    }
 }
 
+Registry::GroupItemBase &Exporter::ExporterItem::Registry()
+{
+   static Registry::GroupItem<> registry{ PathStart };
+   return registry;
+}
+
+Exporter::ExporterItem::ExporterItem(
+   const Identifier &id, const Exporter::ExportPluginFactory &factory )
+   : SingleItem{ id }
+   , mFactory{ factory }
+{}
+
 Exporter::RegisteredExportPlugin::RegisteredExportPlugin(
    const Identifier &id,
    const ExportPluginFactory &factory,
    const Registry::Placement &placement )
+   : RegisteredItem{
+      factory ? std::make_unique< ExporterItem >( id, factory ) : nullptr,
+      placement
+   }
 {
-   if ( factory )
-      Registry::RegisterItem( sRegistry(), placement,
-         std::make_unique< ExporterItem >( id, factory ) );
 }
 
 Exporter::Exporter( AudacityProject &project )
@@ -344,8 +339,8 @@ Exporter::Exporter( AudacityProject &project )
       {
          // visit the registry to collect the plug-ins properly
          // sorted
-         TransparentGroupItem<> top{ PathStart };
-         Registry::Visit( *this, &top, &sRegistry() );
+         GroupItem<> top{ PathStart };
+         Registry::Visit( *this, &top, &ExporterItem::Registry() );
       }
 
       void Visit( SingleItem &item, const Path &path ) override
@@ -402,36 +397,6 @@ const ExportPluginArray &Exporter::GetPlugins()
    return mPlugins;
 }
 
-bool Exporter::DoEditMetadata(AudacityProject &project,
-   const TranslatableString &title,
-   const TranslatableString &shortUndoDescription, bool force)
-{
-   auto &settings = ProjectSettings::Get( project );
-   auto &tags = Tags::Get( project );
-
-   // Back up my tags
-   // Tags (artist name, song properties, MP3 ID3 info, etc.)
-   // The structure may be shared with undo history entries
-   // To keep undo working correctly, always replace this with a NEW duplicate
-   // BEFORE doing any editing of it!
-   auto newTags = tags.Duplicate();
-
-   if (TagsEditorDialog::ShowEditDialog(
-      *newTags, &GetProjectFrame( project ), title, force)) {
-      if (tags != *newTags) {
-         // Commit the change to project state only now.
-         Tags::Set( project, newTags );
-         ProjectHistory::Get( project ).PushState( title, shortUndoDescription);
-      }
-      bool bShowInFuture;
-      gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &bShowInFuture, true);
-      settings.SetShowId3Dialog( bShowInFuture );
-      return true;
-   }
-
-   return false;
-}
-
 bool Exporter::Process(bool selectedOnly, double t0, double t1)
 {
    // Save parms
@@ -456,7 +421,7 @@ bool Exporter::Process(bool selectedOnly, double t0, double t1)
 
    // Let user edit MetaData
    if (mPlugins[mFormat]->GetCanMetaData(mSubFormat)) {
-      if (!DoEditMetadata( *mProject,
+      if (!TagsEditorDialog::DoEditMetadata( *mProject,
          XO("Edit Metadata Tags"), XO("Exported Tags"),
          ProjectSettings::Get( *mProject ).GetShowId3Dialog())) {
          return false;
@@ -1125,7 +1090,7 @@ bool Exporter::SetAutoExportOptions() {
 
    // Let user edit MetaData
    if (mPlugins[mFormat]->GetCanMetaData(mSubFormat)) {
-      if (!DoEditMetadata( *mProject,
+      if (!TagsEditorDialog::DoEditMetadata( *mProject,
          XO("Edit Metadata Tags"),
          XO("Exported Tags"),
          ProjectSettings::Get(*mProject).GetShowId3Dialog())) {

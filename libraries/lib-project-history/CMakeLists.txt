@@ -9,11 +9,8 @@ set( SOURCES
    UndoManager.h
 )
 set( LIBRARIES
-   lib-screen-geometry-interface
-   lib-track-interface
+   lib-project-interface
    lib-transactions-interface
-   PRIVATE
-   wxBase
 )
 audacity_library( lib-project-history "${SOURCES}" "${LIBRARIES}"
    "" ""

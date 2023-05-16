@@ -14,9 +14,8 @@
        where the volume is below a set threshold level.
 
 *//*******************************************************************/
-
-
 #include "TruncSilence.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <algorithm>
@@ -30,12 +29,11 @@
 
 #include "Prefs.h"
 #include "Project.h"
-#include "../ProjectSettings.h"
-#include "../ShuttleGui.h"
-#include "../SyncLock.h"
-#include "../WaveTrack.h"
+#include "ShuttleGui.h"
+#include "SyncLock.h"
+#include "WaveTrack.h"
 #include "../widgets/valnum.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 
 class Enums {
 public:
@@ -246,8 +244,7 @@ bool EffectTruncSilence::ProcessIndependently()
 {
    unsigned nGroups = 0;
 
-   const auto &settings = ProjectSettings::Get( *FindProject() );
-   const bool syncLock = settings.IsSyncLocked();
+   const bool syncLock = SyncLockState::Get(*FindProject()).IsSyncLocked();
 
    // Check if it's permissible
    {
@@ -260,7 +257,7 @@ bool EffectTruncSilence::ProcessIndependently()
                   - [&](const Track *pTrack){
                         return channels.contains(pTrack); };
             if (otherTracks) {
-               ::Effect::MessageBox(
+               EffectUIServices::DoMessageBox(*this,
                   XO(
 "When truncating independently, there may only be one selected audio track in each Sync-Locked Track Group.") );
                return false;
@@ -492,7 +489,12 @@ bool EffectTruncSilence::DoRemoval
             wt->Clear(cutStart, cutEnd);
 
             // Write cross-faded data
-            wt->Set((samplePtr)buf1.get(), floatSample, t1, blendFrames);
+            wt->Set((samplePtr)buf1.get(), floatSample, t1, blendFrames,
+               // This effect mostly shifts samples to remove silences, and
+               // does only a little bit of floating point calculations to
+               // cross-fade the splices, over a 100 sample interval by default.
+               // Don't dither.
+               narrowestSampleFormat);
          },
          [&](Track *t) {
             // Non-wave tracks: just do a sync-lock adjust
@@ -662,9 +664,11 @@ bool EffectTruncSilence::Analyze(RegionList& silenceList,
 }
 
 
-std::unique_ptr<EffectUIValidator> EffectTruncSilence::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectTruncSilence::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    wxASSERT(nActions == WXSIZEOF(kActionStrings));
 
    S.AddSpace(0, 5);
@@ -934,8 +938,14 @@ void EffectTruncSilence::OnControlChange(wxCommandEvent & WXUNUSED(evt))
 
    UpdateUI();
 
-   if (!EnableApply(mUIParent->TransferDataFromWindow()))
+   if (!EffectEditor::EnableApply(
+      mUIParent, mUIParent->TransferDataFromWindow()))
    {
       return;
    }
+}
+
+bool EffectTruncSilence::NeedsDither() const
+{
+   return false;
 }

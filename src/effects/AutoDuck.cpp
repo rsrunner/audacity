@@ -15,26 +15,24 @@
 \brief a struct that holds a start and end time.
 
 *******************************************************************/
-
-
 #include "AutoDuck.h"
+#include "EffectEditor.h"
 #include "LoadEffects.h"
 
 #include <math.h>
 
 #include <wx/dcclient.h>
 #include <wx/dcmemory.h>
-#include <wx/intl.h>
 
 #include "AColor.h"
 #include "AllThemeResources.h"
 #include "Prefs.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "Theme.h"
 #include "../widgets/valnum.h"
 
-#include "../WaveTrack.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "WaveTrack.h"
+#include "AudacityMessageBox.h"
 
 const EffectParameterMethods& EffectAutoDuck::Parameters() const
 {
@@ -145,7 +143,7 @@ bool EffectAutoDuck::Init()
                return true;
             },
             [&](const Track *) {
-               Effect::MessageBox(
+               EffectUIServices::DoMessageBox(*this,
                   /* i18n-hint: Auto duck is the name of an effect that 'ducks' (reduces the volume)
                    * of the audio automatically when there is sound on another track.  Not as
                    * in 'Donald-Duck'!*/
@@ -161,7 +159,7 @@ bool EffectAutoDuck::Init()
 
    if (!controlTrackCandidate)
    {
-      Effect::MessageBox(
+      EffectUIServices::DoMessageBox(*this,
          /* i18n-hint: Auto duck is the name of an effect that 'ducks' (reduces the volume)
           * of the audio automatically when there is sound on another track.  Not as
           * in 'Donald-Duck'!*/
@@ -330,9 +328,11 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
    return !cancel;
 }
 
-std::unique_ptr<EffectUIValidator> EffectAutoDuck::PopulateOrExchange(
-   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &)
+std::unique_ptr<EffectEditor> EffectAutoDuck::PopulateOrExchange(
+   ShuttleGui & S, EffectInstance &, EffectSettingsAccess &,
+   const EffectOutputs *)
 {
+   mUIParent = S.GetParent();
    S.SetBorder(5);
    S.StartVerticalLay(true);
    {

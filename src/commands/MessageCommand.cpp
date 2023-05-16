@@ -16,10 +16,13 @@
 
 #include "MessageCommand.h"
 
+#include "CommandDispatch.h"
+#include "CommandManager.h"
+#include "../CommonCommandFlags.h"
 #include "LoadCommands.h"
 #include "CommandContext.h"
-#include "../Shuttle.h"
-#include "../ShuttleGui.h"
+#include "SettingsVisitor.h"
+#include "ShuttleGui.h"
 
 const ComponentInterfaceSymbol MessageCommand::Symbol
 { XO("Message") };
@@ -52,4 +55,21 @@ void MessageCommand::PopulateOrExchange(ShuttleGui & S)
 bool MessageCommand::Apply(const CommandContext & context){
    context.Status( mMessage );
    return true;
+}
+
+namespace {
+using namespace MenuTable;
+
+// Register menu items
+
+AttachedItem sAttachment{
+   wxT("Optional/Extra/Part2/Scriptables2"),
+   // Note that the PLUGIN_SYMBOL must have a space between words,
+   // whereas the short-form used here must not.
+   // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
+   // you would have to use "CompareAudio" here.)
+   Command( wxT("Message"), XXO("Message..."),
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+};
+
 }

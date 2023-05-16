@@ -12,8 +12,8 @@
 #ifndef __AUDACITY_EFFECT_REVERB__
 #define __AUDACITY_EFFECT_REVERB__
 
-#include "PerTrackEffect.h"
-#include "../ShuttleAutomation.h"
+#include "StatelessPerTrackEffect.h"
+#include "ShuttleAutomation.h"
 
 
 struct Reverb_priv_t;
@@ -41,10 +41,16 @@ struct EffectReverbSettings
    double mDryGain     { dryGainDefault };
    double mStereoWidth { stereoWidthDefault };
    bool   mWetOnly     { wetOnlyDefault };
+
+   friend bool operator==(const EffectReverbSettings& a, const EffectReverbSettings& b);
+
+   friend bool OnlySimpleParametersChanged(const EffectReverbSettings& a, const EffectReverbSettings& b);
 };
 
 
-class EffectReverb final : public EffectWithSettings<EffectReverbSettings, PerTrackEffect>
+class EffectReverb final : public EffectWithSettings<
+   EffectReverbSettings, StatelessPerTrackEffect
+>
 {
 public:
 
@@ -64,17 +70,19 @@ public:
 
    EffectType GetType() const override;
    RegistryPaths GetFactoryPresets() const override;
-   bool LoadFactoryPreset(int id, EffectSettings &settings) const override;
+   OptionalMessage LoadFactoryPreset(int id, EffectSettings &settings)
+      const override;
 
    RealtimeSince RealtimeSupport() const override;
 
    // Effect implementation
 
-   std::unique_ptr<EffectUIValidator> PopulateOrExchange(
-      ShuttleGui & S, EffectInstance &instance, EffectSettingsAccess &access)
-   override;
+   std::unique_ptr<EffectEditor> MakeEditor(
+      ShuttleGui & S, EffectInstance &instance,
+      EffectSettingsAccess &access, const EffectOutputs *pOutputs)
+   const override;
 
-   struct Validator;
+   struct Editor;
 
    struct Instance;
 

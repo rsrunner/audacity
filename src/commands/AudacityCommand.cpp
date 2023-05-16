@@ -28,21 +28,17 @@ ShuttleGui.
 #include <algorithm>
 
 #include <wx/defs.h>
-#include <wx/sizer.h>
 #include <wx/stockitem.h>
-#include <wx/string.h>
 #include <wx/tglbtn.h>
-#include <wx/timer.h>
-#include <wx/utils.h>
 #include <wx/log.h>
 
 #include "ConfigInterface.h"
 
-#include "../ShuttleAutomation.h"
-#include "../ShuttleGui.h"
-#include "../widgets/ProgressDialog.h"
-#include "../widgets/HelpSystem.h"
-#include "../widgets/AudacityMessageBox.h"
+#include "ShuttleAutomation.h"
+#include "ShuttleGui.h"
+#include "ProgressDialog.h"
+#include "HelpSystem.h"
+#include "AudacityMessageBox.h"
 #include "../widgets/VetoDialogHook.h"
 
 #include <unordered_map>

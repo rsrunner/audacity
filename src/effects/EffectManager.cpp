@@ -20,19 +20,18 @@ effects.
 
 
 #include "EffectManager.h"
-
 #include "Effect.h"
 
 #include <algorithm>
-#include <wx/tokenzr.h>
 
-#include "../widgets/AudacityMessageBox.h"
+#include "AudacityMessageBox.h"
 
 #include "ConfigInterface.h"
 #include "../ShuttleGetDefinition.h"
 #include "../commands/CommandContext.h"
 #include "../commands/AudacityCommand.h"
 #include "PluginManager.h"
+#include "Track.h"
 
 
 /*******************************************************************************
@@ -299,10 +298,10 @@ bool EffectManager::SetEffectParameters(
       if (eap.HasEntry(wxT("Use Preset")))
       {
          return effect->LoadSettingsFromString(
-            eap.Read(wxT("Use Preset")), settings);
+            eap.Read(wxT("Use Preset")), settings).has_value();
       }
 
-      return effect->LoadSettingsFromString(params, settings);
+      return effect->LoadSettingsFromString(params, settings).has_value();
    }
    AudacityCommand *command = GetAudacityCommand(ID);
    
@@ -332,16 +331,30 @@ bool EffectManager::PromptUser(
    const PluginID & ID, const EffectDialogFactory &factory, wxWindow &parent)
 {
    bool result = false;
-   if (auto effect = GetEffect(ID)) {
+   if (auto effect = dynamic_cast<Effect*>(GetEffect(ID))) {
+
+      auto empty = TrackList::Create(nullptr);
+      auto pEffectBase = dynamic_cast<EffectBase*>(effect);
+      if (pEffectBase)
+         // This allows effects to call Init() safely
+         pEffectBase->SetTracks(empty.get());
+      Finally Do([&]{
+         // reverse the side-effect
+         if (pEffectBase)
+            pEffectBase->SetTracks(nullptr);
+      });
+
       std::shared_ptr<EffectInstance> pInstance;
       //! Show the effect dialog, only so that the user can choose settings,
       //! for instance to define a macro.
-      if (const auto pSettings = GetDefaultSettings(ID))
-         result = effect->ShowHostInterface(
+      if (const auto pSettings = GetDefaultSettings(ID)) {
+         const auto pServices = dynamic_cast<EffectUIServices *>(effect);
+         result = pServices && pServices->ShowHostInterface(*effect,
             parent, factory,
             pInstance,
             *std::make_shared<SimpleEffectSettingsAccess>(*pSettings),
             effect->IsBatchProcessing() ) != 0;
+      }
       return result;
    }
 
@@ -394,7 +407,7 @@ bool EffectManager::HasPresets(const PluginID & ID)
 
 #include <wx/choice.h>
 #include <wx/listbox.h>
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 
 namespace {
 
@@ -803,7 +816,8 @@ void InitializePreset(
       SetConfig(manager, PluginSettings::Private, FactoryDefaultsGroup(),
          InitializedKey, true);
    }
-   manager.LoadUserPreset(CurrentSettingsGroup(), settings);
+   // ignore failure
+   (void) manager.LoadUserPreset(CurrentSettingsGroup(), settings);
 }
 
 std::pair<ComponentInterface *, EffectSettings>
@@ -841,12 +855,6 @@ EffectAndDefaultSettings &EffectManager::DoGetEffect(const PluginID & ID)
 
       if (auto effect = dynamic_cast<EffectPlugin *>(component))
          return (mEffects[ID] = { effect, std::move(settings) });
-      else if (auto client = dynamic_cast<EffectUIClientInterface *>(component)) {
-         // Nothing inherits EffectUIClientInterface now that does not also
-         // inherit EffectPlugin
-         wxASSERT(false);
-         return empty;
-      }
       else {
          if ( !dynamic_cast<AudacityCommand *>(component) )
             AudacityMessageBox(

@@ -12,10 +12,13 @@
 
 #include <cassert>
 
+#include "EffectEditor.h"
 #include "EffectUI.h"
+#include "EffectUIServices.h"
 #include "RealtimeEffectState.h"
 
 #include "EffectManager.h"
+#include "UndoManager.h"
 #include "ProjectHistory.h"
 #include "ProjectWindow.h"
 #include "Track.h"
@@ -62,7 +65,7 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
    if (effectPlugin == nullptr)
       return;
 
-   EffectUIClientInterface* client = effectPlugin->GetEffectUIClientInterface();
+   const auto client = dynamic_cast<EffectUIServices *>(effectPlugin);
 
    // Effect has no client interface
    if (client == nullptr)
@@ -87,8 +90,8 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
 
    UpdateTitle();
 
-   client->ShowClientInterface(
-      projectWindow, *mEffectUIHost, mEffectUIHost->GetValidator(), false);
+   client->ShowClientInterface(*effectPlugin,
+      projectWindow, *mEffectUIHost, mEffectUIHost->GetEditor(), false);
 
    // The dialog was modal? That shouldn't have happened
    if (mEffectUIHost == nullptr || !mEffectUIHost->IsShown())
@@ -108,6 +111,9 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
          // project state is destroyed
          Hide(&project);
       });
+
+   mParameterChangedSubscription = mEffectUIHost->GetEditor()->Subscribe(
+      [this](auto) { UndoManager::Get(*mpProject).MarkUnsaved(); });
 }
 
 void RealtimeEffectStateUI::Hide(AudacityProject* project)

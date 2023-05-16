@@ -20,12 +20,16 @@
 
 #include "SetProjectCommand.h"
 
+#include "CommandDispatch.h"
+#include "CommandManager.h"
+#include "../CommonCommandFlags.h"
 #include "LoadCommands.h"
 #include "Project.h"
+#include "ProjectRate.h"
 #include "../ProjectWindows.h"
-#include "../WaveTrack.h"
-#include "../Shuttle.h"
-#include "../ShuttleGui.h"
+#include "WaveTrack.h"
+#include "SettingsVisitor.h"
+#include "ShuttleGui.h"
 #include "CommandContext.h"
 #include "../toolbars/SelectionBar.h"
 
@@ -85,11 +89,8 @@ bool SetProjectCommand::Apply(const CommandContext & context)
    if( bHasName )
       window.SetLabel(mName);
 
-   if( bHasRate && mRate >= 1 && mRate <= 1000000 )
-   {
-      auto &bar = SelectionBar::Get( project );
-      bar.SetRate( mRate );
-   }
+   if (bHasRate && mRate >= 1 && mRate <= 1000000)
+      ProjectRate::Get(project).SetRate(mRate);
 
    if( bHasSizing )
    {
@@ -97,4 +98,20 @@ bool SetProjectCommand::Apply(const CommandContext & context)
       window.SetSize( wxSize( mWidth, mHeight ));
    }
    return true;
+}
+
+namespace {
+using namespace MenuTable;
+
+// Register menu items
+
+AttachedItem sAttachment1{
+   wxT("Optional/Extra/Part2/Scriptables1"),
+   // Note that the PLUGIN_SYMBOL must have a space between words,
+   // whereas the short-form used here must not.
+   // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
+   // you would have to use "CompareAudio" here.)
+   Command( wxT("SetProject"), XXO("Set Project..."),
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+};
 }

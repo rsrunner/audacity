@@ -18,10 +18,12 @@
 #define CLOSE_SOCKET closesocket
 #define NFDS(x) (0)//not used on winsock2
 #else
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <poll.h>
+#include <fcntl.h>
 
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1

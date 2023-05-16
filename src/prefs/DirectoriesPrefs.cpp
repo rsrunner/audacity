@@ -21,23 +21,18 @@
 #include <math.h>
 
 #include <wx/defs.h>
-#include <wx/intl.h>
 #include <wx/log.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
-#include <wx/button.h>
 #include <wx/dirdlg.h>
-#include <wx/event.h>
 #include <wx/filefn.h>
 #include <wx/filename.h>
-#include <wx/utils.h>
 
 #include "Prefs.h"
-#include "../ShuttleGui.h"
+#include "ShuttleGui.h"
 #include "TempDirectory.h"
-#include "../widgets/AudacityMessageBox.h"
-#include "../widgets/ReadOnlyText.h"
-#include "../widgets/wxTextCtrlWrapper.h"
+#include "AudacityMessageBox.h"
+#include "ReadOnlyText.h"
 #include "FileNames.h"
 
 using namespace FileNames;

@@ -28,7 +28,6 @@ used throughout Audacity into this one place.
 
 #include <wx/defs.h>
 #include <wx/filename.h>
-#include <wx/intl.h>
 #include <wx/stdpaths.h>
 #include <wx/utils.h>
 #include "BasicUI.h"
@@ -485,7 +484,7 @@ FilePath FileNames::PathFromAddr(void *addr)
 bool FileNames::IsPathAvailable( const FilePath & Path){
    if( Path.IsEmpty() )
       return false;
-#ifndef __WIN32__
+#ifndef _WIN32
    return true;
 #else
    wxFileNameWrapper filePath( Path );
@@ -497,7 +496,7 @@ wxFileNameWrapper FileNames::DefaultToDocumentsFolder(const wxString &preference
 {
    wxFileNameWrapper result;
 
-#ifdef __WIN32__
+#ifdef _WIN32
    wxFileName defaultPath( wxStandardPaths::Get().GetDocumentsDir(), "" );
 
    defaultPath.AppendDir( AppName );

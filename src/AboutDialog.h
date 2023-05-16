@@ -12,7 +12,7 @@
 #define __AUDACITY_ABOUT_DLG__
 
 #include <vector>
-#include "widgets/wxPanelWrapper.h" // to inherit
+#include "wxPanelWrapper.h" // to inherit
 
 class wxStaticBitmap;
 class wxTextOutputStream;
@@ -47,7 +47,6 @@ class AUDACITY_DLL_API AboutDialog final : public wxDialogWrapper {
  private:
    enum Role {
       roleTeamMember,
-      roleExMuse,
       roleEmeritusTeam,
       roleDeceased,
       roleContributor,

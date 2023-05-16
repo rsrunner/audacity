@@ -15,21 +15,21 @@ public:
       , mProject{ project }
    {
       InitIntervals();
-      mpTrack->Bind(
-         EVT_LABELTRACK_PERMUTED, &LabelTrackShifter::OnLabelPermuted, this );
-      mpTrack->Bind(
-         EVT_LABELTRACK_ADDITION, &LabelTrackShifter::OnLabelAdded, this );
-      mpTrack->Bind(
-         EVT_LABELTRACK_DELETION, &LabelTrackShifter::OnLabelDeleted, this );
+      mSubscription = mpTrack->Subscribe([this](const LabelTrackEvent &e){
+         switch (e.type) {
+         case LabelTrackEvent::Permutation:
+            return OnLabelPermuted(e);
+         case LabelTrackEvent::Addition:
+            return OnLabelAdded(e);
+         case LabelTrackEvent::Deletion:
+            return OnLabelDeleted(e);
+         default:
+            return;
+         }
+      });
    }
    ~LabelTrackShifter() override
    {
-      mpTrack->Unbind(
-         EVT_LABELTRACK_PERMUTED, &LabelTrackShifter::OnLabelPermuted, this );
-      mpTrack->Unbind(
-         EVT_LABELTRACK_ADDITION, &LabelTrackShifter::OnLabelAdded, this );
-      mpTrack->Unbind(
-         EVT_LABELTRACK_DELETION, &LabelTrackShifter::OnLabelDeleted, this );
    }
    Track &GetTrack() const override { return *mpTrack; }
    
@@ -134,12 +134,14 @@ public:
       return true;
    }
 
-   bool Attach( Intervals intervals ) override
+   bool Attach( Intervals intervals, double offset ) override
    {
       auto pTrack = mpTrack.get();
       std::for_each( intervals.rbegin(), intervals.rend(),
-         [this, pTrack](auto &interval){
+         [this, pTrack, offset](auto &interval){
             auto pData = static_cast<IntervalData*>( interval.Extra() );
+            if(offset != .0)
+               pData->region.move(offset);
             auto index = pTrack->AddLabel(pData->region, pData->title);
             // Recreate the simpler TrackInterval as would be reported by LabelTrack
             mMoving.emplace_back( pTrack->MakeInterval(index) );
@@ -161,9 +163,8 @@ public:
    }
 
 private:
-   void OnLabelPermuted( LabelTrackEvent &e )
+   void OnLabelPermuted( const LabelTrackEvent &e )
    {
-      e.Skip();
       if ( e.mpTrack.lock() != mpTrack )
          return;
 
@@ -190,9 +191,8 @@ private:
       std::for_each(mMoving.begin(), mMoving.end(), update);
    }
 
-   void OnLabelAdded( LabelTrackEvent &e )
+   void OnLabelAdded( const LabelTrackEvent &e )
    {
-      e.Skip();
       if ( e.mpTrack.lock() != mpTrack )
          return;
 
@@ -215,9 +215,8 @@ private:
       std::for_each(mMoving.begin(), mMoving.end(), update);
    }
 
-   void OnLabelDeleted( LabelTrackEvent &e )
+   void OnLabelDeleted( const LabelTrackEvent e )
    {
-      e.Skip();
       if ( e.mpTrack.lock() != mpTrack )
          return;
 
@@ -243,6 +242,7 @@ private:
       std::for_each(mMoving.begin(), mMoving.end(), update);
    }
 
+   Observer::Subscription mSubscription;
    std::shared_ptr<LabelTrack> mpTrack;
    AudacityProject &mProject;
 };
