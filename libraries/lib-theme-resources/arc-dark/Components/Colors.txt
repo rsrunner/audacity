@@ -109,4 +109,14 @@
              DropHintHighlight: #fedfb2;
       EffectListItemBackground: #5d5d5d;
           EffectListItemBorder: #cccccc;
+              BeatSeparatorPen: #373b40;
+               BarSeparatorPen: #3a3f42;
+           BeatFillStrongBrush: #23272b;
+             BeatFillWeakBrush: #272b2f;
+        BeatFillStrongSelBrush: #3c445a;
+          BeatFillWeakSelBrush: #40485d;
+                   LoopEnabled: #4a4d59;
+                LoopNotEnabled: #292e33;
+                       Grabber: #9295a6;
+       TimelineRulerBackground: #292e33;
 }
