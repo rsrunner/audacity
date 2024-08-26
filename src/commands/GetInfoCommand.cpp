@@ -115,6 +115,7 @@ template<bool Const>
 bool GetInfoCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
    S.DefineEnum( mInfoType, wxT("Type"), 0, kTypes, nTypes );
    S.DefineEnum( mFormat, wxT("Format"), 0, kFormats, nFormats );
+   S.Define(mbStrFloat, wxT("StringFloats"), false);
    return true;
 }
 
@@ -134,6 +135,11 @@ void GetInfoCommand::PopulateOrExchange(ShuttleGui & S)
          mInfoType, Msgids( kTypes, nTypes ));
       S.TieChoice( XXO("Format:"),
          mFormat, Msgids( kFormats, nFormats ));
+   }
+   S.EndMultiColumn();
+   S.StartMultiColumn(1, wxALIGN_CENTER);
+   {
+      S.TieCheckBox(XXO("String Floats"), mbStrFloat);
    }
    S.EndMultiColumn();
 }
