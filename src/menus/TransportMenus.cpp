@@ -2,18 +2,15 @@
 #include "../CommonCommandFlags.h"
 #include "DeviceManager.h"
 #include "../LabelTrack.h"
-#include "../Menus.h"
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
 #include "../ProjectAudioManager.h"
 #include "ProjectHistory.h"
-#include "../ProjectSettings.h"
 #include "../ProjectWindows.h"
-#include "../ProjectWindow.h"
 #include "../SelectUtilities.h"
 #include "../SoundActivatedRecord.h"
-#include "../TrackPanelAx.h"
+#include "TrackFocus.h"
 #include "../TrackPanel.h"
 #include "../TransportUtilities.h"
 #include "UndoManager.h"
@@ -21,8 +18,8 @@
 #include "../prefs/TracksPrefs.h"
 #include "WaveTrack.h"
 #include "ViewInfo.h"
-#include "../commands/CommandContext.h"
-#include "../commands/CommandManager.h"
+#include "Viewport.h"
+#include "CommandContext.h"
 #include "../toolbars/ControlToolBar.h"
 #include "../toolbars/ToolManager.h"
 #include "AudacityMessageBox.h"
@@ -74,7 +71,7 @@ void DoMoveToLabel(AudacityProject &project, bool next)
 {
    auto &tracks = TrackList::Get( project );
    auto &trackFocus = TrackFocus::Get( project );
-   auto &window = ProjectWindow::Get( project );
+   auto &viewport = Viewport::Get(project);
    auto &projectAudioManager = ProjectAudioManager::Get(project);
 
    // Find the number of label tracks, and ptr to last track found
@@ -110,13 +107,13 @@ void DoMoveToLabel(AudacityProject &project, bool next)
          if (ProjectAudioIO::Get( project ).IsAudioActive()) {
             TransportUtilities::DoStopPlaying(project);
             selectedRegion = label->selectedRegion;
-            window.RedrawProject();
+            viewport.Redraw();
             TransportUtilities::DoStartPlaying(project, newDefault);
          }
          else {
             selectedRegion = label->selectedRegion;
-            window.ScrollIntoView(selectedRegion.t0());
-            window.RedrawProject();
+            viewport.ScrollIntoView(selectedRegion.t0());
+            viewport.Redraw();
          }
          /* i18n-hint:
             String is replaced by the name of a label,
@@ -199,7 +196,6 @@ void OnRecord2ndChoice(const CommandContext &context)
    TransportUtilities::RecordAndWait(context, true);
 }
 
-#ifdef EXPERIMENTAL_PUNCH_AND_ROLL
 void OnPunchAndRoll(const CommandContext &context)
 {
    AudacityProject &project = context.project;
@@ -267,11 +263,11 @@ void OnPunchAndRoll(const CommandContext &context)
    for (const auto &wt : tracks) {
       auto rate = wt->GetRate();
       sampleCount testSample(floor(t1 * rate));
-      auto intervals = wt->GetIntervals();
+      const auto &intervals = as_const(*wt).Intervals();
       auto pred = [rate](sampleCount testSample){ return
-         [rate, testSample](const Track::Interval &interval){
-            auto start = floor(interval.Start() * rate + 0.5);
-            auto end = floor(interval.End() * rate + 0.5);
+         [rate, testSample](const auto &pInterval){
+            auto start = floor(pInterval->Start() * rate + 0.5);
+            auto end = floor(pInterval->End() * rate + 0.5);
             auto ts = testSample.as_double();
             return ts >= start && ts < end;
          };
@@ -290,7 +286,7 @@ void OnPunchAndRoll(const CommandContext &context)
          // May adjust t1 left
          // Let's ignore the possibility of a clip even shorter than the
          // crossfade duration!
-         newt1 = std::min(newt1, iter->End() - crossFadeDuration);
+         newt1 = std::min(newt1, (*iter).get()->End() - crossFadeDuration);
       }
    }
 
@@ -307,40 +303,48 @@ void OnPunchAndRoll(const CommandContext &context)
       const auto duration =
          std::max(0.0, std::min(crossFadeDuration, endTime - t1));
       const size_t getLen = floor(duration * wt->GetRate());
-      std::vector<float> data(getLen);
       if (getLen > 0) {
-         float *const samples = data.data();
+         // TODO more-than-two-channels
+         const auto nChannels = std::min<size_t>(2, wt->NChannels());
+         crossfadeData.resize(nChannels);
+         float *buffers[2]{};
+         for (size_t ii = 0; ii < nChannels; ++ii) {
+            auto &data = crossfadeData[ii];
+            data.resize(getLen);
+            buffers[ii] = data.data();
+         }
          const sampleCount pos = wt->TimeToLongSamples(t1);
-         wt->GetFloats(samples, pos, getLen);
+         if (!wt->GetFloats(0, nChannels, buffers, pos, getLen))
+            // TODO error message
+            return;
       }
-      crossfadeData.push_back(std::move(data));
    }
 
    // Change tracks only after passing the error checks above
-   for (const auto &wt : tracks) {
+   for (const auto &wt : tracks)
       wt->Clear(t1, wt->GetEndTime());
-   }
 
    // Choose the tracks for playback.
-   TransportTracks transportTracks;
+   TransportSequences transportTracks;
    const auto duplex = ProjectAudioManager::UseDuplex();
    if (duplex)
       // play all
-      transportTracks = TransportTracks{
-         TrackList::Get( project ), false, true };
+      transportTracks = MakeTransportTracks(
+         TrackList::Get( project ), false, true);
    else
       // play recording tracks only
-      std::copy(tracks.begin(), tracks.end(),
-         std::back_inserter(transportTracks.playbackTracks));
+      for (auto &pTrack : tracks)
+         transportTracks.playbackSequences.push_back(pTrack);
       
    // Unlike with the usual recording, a track may be chosen both for playback
    // and recording.
-   transportTracks.captureTracks = std::move(tracks);
+   std::copy(tracks.begin(), tracks.end(),
+      back_inserter(transportTracks.captureSequences));
 
    // Try to start recording
    auto options = ProjectAudioIO::GetDefaultOptions(project);
    options.rate = rateOfSelected;
-   options.preRoll = std::max(0L,
+   options.preRoll = std::max(0.0,
       gPrefs->Read(AUDIO_PRE_ROLL_KEY, DEFAULT_PRE_ROLL_SECONDS));
    options.pCrossfadeData = &crossfadeData;
    bool success = ProjectAudioManager::Get( project ).DoRecord(project,
@@ -356,7 +360,6 @@ void OnPunchAndRoll(const CommandContext &context)
       // Roll back the deletions
       ProjectHistory::Get( project ).RollbackState();
 }
-#endif
 
 void OnTogglePlayRegion(const CommandContext &context)
 {
@@ -417,11 +420,7 @@ void OnToggleSoundActivated(const CommandContext &WXUNUSED(context) )
 void OnTogglePlayRecording(const CommandContext &WXUNUSED(context) )
 {
    bool Duplex;
-#ifdef EXPERIMENTAL_DA
-   gPrefs->Read(wxT("/AudioIO/Duplex"), &Duplex, false);
-#else
    gPrefs->Read(wxT("/AudioIO/Duplex"), &Duplex, true);
-#endif
    gPrefs->Write(wxT("/AudioIO/Duplex"), !Duplex);
    gPrefs->Flush();
    ToolManager::ModifyAllProjectToolbarMenus();
@@ -723,14 +722,12 @@ void OnStopSelect(const CommandContext &context)
 // Menu definitions
 
 // Under /MenuBar
-using namespace MenuTable;
-BaseItemSharedPtr TransportMenu()
+using namespace MenuRegistry;
+auto TransportMenu()
 {
-   using Options = CommandManager::Options;
-
-   static const auto CanStopFlags = AudioIONotBusyFlag() | CanStopAudioStreamFlag();
-
-   static BaseItemSharedPtr menu{
+   static const auto CanStopFlags =
+      AudioIONotBusyFlag() | CanStopAudioStreamFlag();
+   static auto menu = std::shared_ptr{
    /* i18n-hint: 'Transport' is the name given to the set of controls that
       play, record, pause etc. */
    Menu( wxT("Transport"), XXO("Tra&nsport"),
@@ -768,11 +765,9 @@ BaseItemSharedPtr TransportMenu()
                wxT("Shift+R")
             ); },
 
-   #ifdef EXPERIMENTAL_PUNCH_AND_ROLL
             Command( wxT("PunchAndRoll"), XXO("Punch and Rol&l Record"),
                OnPunchAndRoll,
                WaveTracksExistFlag() | AudioIONotBusyFlag(), wxT("Shift+D") ),
-   #endif
 
             // JKC: I decided to duplicate this between play and record,
             // rather than put it at the top level.
@@ -813,27 +808,21 @@ BaseItemSharedPtr TransportMenu()
             Section( "Part1",
                // Sound Activated recording options
                Command( wxT("SoundActivationLevel"),
-                  XXO("Sound Activation Le&vel..."), OnSoundActivated,
+                  XXO("Set sound activation le&vel..."), OnSoundActivated,
                   AudioIONotBusyFlag() | CanStopAudioStreamFlag() ),
                Command( wxT("SoundActivation"),
-                  XXO("Sound A&ctivated Recording (on/off)"),
+                  XXO("Enable sound a&ctivated recording"),
                   OnToggleSoundActivated,
                   AudioIONotBusyFlag() | CanStopAudioStreamFlag(),
                   Options{}.CheckTest(SoundActivatedRecord) )
             ),
 
             Section( "Part2",
-               Command( wxT("Overdub"), XXO("&Overdub (on/off)"),
+               Command( wxT("Overdub"), XXO("Hear &other tracks during recording"),
                   OnTogglePlayRecording,
                   AudioIONotBusyFlag() | CanStopAudioStreamFlag(),
-                  Options{}.CheckTest( wxT("/AudioIO/Duplex"),
-#ifdef EXPERIMENTAL_DA
-                     false
-#else
-                     true
-#endif
-                  ) ),
-               Command( wxT("SWPlaythrough"), XXO("So&ftware Playthrough (on/off)"),
+                  Options{}.CheckTest( wxT("/AudioIO/Duplex"), true) ),
+               Command( wxT("SWPlaythrough"), XXO("Enable audible input &monitoring"),
                   OnToggleSWPlaythrough,
                   AudioIONotBusyFlag() | CanStopAudioStreamFlag(),
                   Options{}.CheckTest( wxT("/AudioIO/SWPlaythrough"), false ) )
@@ -855,14 +844,11 @@ BaseItemSharedPtr TransportMenu()
    return menu;
 }
 
-AttachedItem sAttachment1{
-   wxT(""),
-   Indirect(TransportMenu())
-};
+AttachedItem sAttachment1{ Indirect(TransportMenu()) };
 
-BaseItemSharedPtr ExtraTransportMenu()
+auto ExtraTransportMenu()
 {
-   static BaseItemSharedPtr menu{
+   static auto menu = std::shared_ptr{
    Menu( wxT("Transport"), XXO("T&ransport"),
       // PlayStop is already in the menus.
       /* i18n-hint: (verb) Start playing audio*/
@@ -903,15 +889,13 @@ BaseItemSharedPtr ExtraTransportMenu()
    return menu;
 }
 
-AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part1"),
-   Indirect(ExtraTransportMenu())
+AttachedItem sAttachment2{ Indirect(ExtraTransportMenu()),
+   wxT("Optional/Extra/Part1")
 };
 
-BaseItemSharedPtr ExtraSelectionItems()
+auto ExtraSelectionItems()
 {
-   using Options = CommandManager::Options;
-   static BaseItemSharedPtr items{
+   static auto items = std::shared_ptr{
    Items(wxT("MoveToLabel"),
       Command(wxT("MoveToPrevLabel"), XXO("Move to Pre&vious Label"),
          OnMoveToPrevLabel,
@@ -923,9 +907,8 @@ BaseItemSharedPtr ExtraSelectionItems()
    return items;
 }
 
-AttachedItem sAttachment4{
-  { wxT("Optional/Extra/Part1/Select"), { OrderingHint::End, {} } },
-   Indirect(ExtraSelectionItems())
+AttachedItem sAttachment4{ Indirect(ExtraSelectionItems()),
+  { wxT("Optional/Extra/Part1/Select"), { OrderingHint::End, {} } }
 };
 
 }

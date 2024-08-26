@@ -7,6 +7,8 @@ set( SOURCES
    EffectBase.h
    Effect.cpp
    Effect.h
+   EffectOutputTracks.cpp
+   EffectOutputTracks.h
    EffectPlugin.cpp
    EffectPlugin.h
    LoadEffects.cpp
@@ -17,11 +19,16 @@ set( SOURCES
    PerTrackEffect.h
    StatefulEffectBase.cpp
    StatefulEffectBase.h
+   StatefulEffect.cpp
+   StatefulEffect.h
+   StatefulPerTrackEffect.cpp
+   StatefulPerTrackEffect.h
 )
 set( LIBRARIES
-   lib-audio-io-interface
    lib-command-parameters-interface
    lib-numeric-formats-interface
+   lib-realtime-effects
+   lib-stretching-sequence-interface
    lib-wave-track-interface
 )
 audacity_library( lib-effects "${SOURCES}" "${LIBRARIES}"

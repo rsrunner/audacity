@@ -20,11 +20,11 @@
 #include "../../../images/Cursors.h"
 
 #include <wx/cursor.h>
+#include <wx/event.h>
 
 HitTestPreview AffordanceHandle::HitPreview(const AudacityProject*, bool unsafe, bool moving)
 {
-    static auto disabledCursor =
-        MakeCursor(wxCURSOR_NO_ENTRY, DisabledCursorXpm, 16, 16);
+    static wxCursor arrowCursor{ wxCURSOR_ARROW };
     static auto handOpenCursor =
         MakeCursor(wxCURSOR_HAND, RearrangeCursorXpm, 16, 16);
     static auto handClosedCursor =
@@ -34,7 +34,7 @@ HitTestPreview AffordanceHandle::HitPreview(const AudacityProject*, bool unsafe,
         " Hold Shift and drag to move all clips on the same track.");
 
     if (unsafe)
-        return { message, &*disabledCursor };
+        return { message, &arrowCursor };
     return {
         message,
         (moving
@@ -63,23 +63,45 @@ AffordanceHandle::AffordanceHandle(const std::shared_ptr<Track>& track)
 UIHandle::Result AffordanceHandle::Click(const TrackPanelMouseEvent& evt, AudacityProject* pProject)
 {
     auto result = TimeShiftHandle::Click(evt, pProject);
+    mClickPosition = evt.event.GetPosition();
     return result | RefreshCode::RefreshCell;
+}
+
+UIHandle::Result AffordanceHandle::Drag(const TrackPanelMouseEvent& event, AudacityProject* pProject)
+{
+    if(!mMoving)
+    {
+        if(std::abs(mClickPosition.x - event.event.m_x) >= MoveThreshold ||
+           std::abs(mClickPosition.y - event.event.m_y) >= MoveThreshold)
+        {
+            mMoving = true;
+        }
+        else
+            return RefreshCode::RefreshNone;
+    }
+    return TimeShiftHandle::Drag(event, pProject);
 }
 
 UIHandle::Result AffordanceHandle::Release(const TrackPanelMouseEvent& event, AudacityProject* pProject, wxWindow* pParent)
 {
     auto result = TimeShiftHandle::Release(event, pProject, pParent);
     if (!WasMoved())
-    {
-        auto& trackList = TrackList::Get(*pProject);
-        if(const auto track = trackList.Lock<Track>(GetTrack()))
-        {
-            auto& selectionState = SelectionState::Get(*pProject);
-            selectionState.SelectNone(trackList);
-            selectionState.SelectTrack(*track, true, true);
-
-            result |= SelectAt(event, pProject);
-        }
-    }
+        result |= UpdateTrackSelection(event, pProject);
     return result;
+}
+
+UIHandle::Result AffordanceHandle::UpdateTrackSelection(const TrackPanelMouseEvent& event, AudacityProject* pProject)
+{
+    auto& trackList = TrackList::Get(*pProject);
+
+    if(const auto track = trackList.Lock<Track>(GetTrack()))
+    {
+        auto& selectionState = SelectionState::Get(*pProject);
+        selectionState.SelectNone(trackList);
+        selectionState.SelectTrack(*track, true, true);
+
+        return SelectAt(event, pProject);
+    }
+
+    return RefreshCode::RefreshNone;
 }

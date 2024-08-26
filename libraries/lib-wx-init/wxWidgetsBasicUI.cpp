@@ -182,16 +182,25 @@ namespace {
 struct MyGenericProgress : wxGenericProgressDialog, GenericProgressDialog {
    MyGenericProgress(const TranslatableString &title,
       const TranslatableString &message,
-      wxWindow *parent = nullptr)
+      wxWindow *parent = nullptr,
+      int style = ProgressAppModal | ProgressShowElapsedTime | ProgressSmooth)
       : wxGenericProgressDialog{
          title.Translation(), message.Translation(),
          300000,     // range
          parent,
-         wxPD_APP_MODAL | wxPD_ELAPSED_TIME | wxPD_SMOOTH
+         style
       }
    {}
    ~MyGenericProgress() override = default;
-   void Pulse() override { wxGenericProgressDialog::Pulse(); }
+   ProgressResult Pulse() override
+   {
+      if (wxGenericProgressDialog::Pulse())
+            return ProgressResult::Success;
+      else if (WasCancelled())
+            return ProgressResult::Cancelled;
+      else
+            return ProgressResult::Stopped;
+   }
 };
 }
 
@@ -199,10 +208,22 @@ std::unique_ptr<GenericProgressDialog>
 wxWidgetsBasicUI::DoMakeGenericProgress(
    const BasicUI::WindowPlacement &placement,
    const TranslatableString &title,
-   const TranslatableString &message)
+   const TranslatableString &message,
+   int style)
 {
+   // Compute the style argument to pass to wxWidgets
+   int flags = 0;
+   if ((style & ProgressCanAbort))
+      flags |= wxPD_CAN_ABORT;
+   if ((style & ProgressAppModal))
+      flags |= wxPD_APP_MODAL;
+   if ((style & ProgressShowElapsedTime))
+      flags |= wxPD_ELAPSED_TIME;
+   if ((style & ProgressSmooth))
+      flags |= wxPD_SMOOTH;
+
    return std::make_unique<MyGenericProgress>(
-      title, message, wxWidgetsWindowPlacement::GetParent(placement));
+      title, message, wxWidgetsWindowPlacement::GetParent(placement), flags);
 }
 
 int wxWidgetsBasicUI::DoMultiDialog(const TranslatableString &message,
@@ -228,4 +249,14 @@ void wxWidgetsBasicUI::DoSetFocus(const BasicUI::WindowPlacement &focus)
 {
    auto pWindow = wxWidgetsWindowPlacement::GetParent(focus);
    pWindow->SetFocus();
+}
+
+bool wxWidgetsBasicUI::IsUsingRtlLayout() const
+{
+   return wxLayout_RightToLeft == wxTheApp->GetLayoutDirection();
+}
+
+bool wxWidgetsBasicUI::IsUiThread() const
+{
+   return wxIsMainThread();
 }

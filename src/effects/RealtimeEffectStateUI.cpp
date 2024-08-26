@@ -17,11 +17,11 @@
 #include "EffectUIServices.h"
 #include "RealtimeEffectState.h"
 
+#include "EffectBase.h"
 #include "EffectManager.h"
 #include "UndoManager.h"
 #include "ProjectHistory.h"
 #include "ProjectWindow.h"
-#include "Track.h"
 
 namespace
 {
@@ -60,7 +60,8 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
    }
 
    const auto ID = mRealtimeEffectState.GetID();
-   const auto effectPlugin = EffectManager::Get().GetEffect(ID);
+   const auto effectPlugin =
+      dynamic_cast<EffectBase*>(EffectManager::Get().GetEffect(ID));
 
    if (effectPlugin == nullptr)
       return;
@@ -113,7 +114,10 @@ void RealtimeEffectStateUI::Show(AudacityProject& project)
       });
 
    mParameterChangedSubscription = mEffectUIHost->GetEditor()->Subscribe(
-      [this](auto) { UndoManager::Get(*mpProject).MarkUnsaved(); });
+      [this](auto) { if (mpProject) {  // This can be null if closing an effect without making changes.
+                        UndoManager::Get(*mpProject).MarkUnsaved();
+                     }
+                   });
 }
 
 void RealtimeEffectStateUI::Hide(AudacityProject* project)
@@ -135,10 +139,9 @@ void RealtimeEffectStateUI::Toggle(AudacityProject& project)
       Show(project);
 }
 
-void RealtimeEffectStateUI::UpdateTrackData(const Track& track)
+void RealtimeEffectStateUI::SetTargetName(const wxString& targetName)
 {
-   mTrackName = track.GetName();
-
+   mTargetName = targetName;
    UpdateTitle();
 }
 
@@ -168,10 +171,10 @@ void RealtimeEffectStateUI::UpdateTitle()
    }
 
    const auto title =
-      mTrackName.empty() ?
+      mTargetName.empty() ?
          mEffectName :
          /* i18n-hint: First %s is an effect name, second is a track name */
-         XO("%s - %s").Format(mEffectName, mTrackName);
+         XO("%s - %s").Format(mEffectName, mTargetName);
 
    mEffectUIHost->SetTitle(title);
    mEffectUIHost->SetName(title);

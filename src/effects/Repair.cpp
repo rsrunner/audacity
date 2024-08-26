@@ -19,18 +19,17 @@ renamed and focused on the smaller subproblem of repairing
 the audio, rather than actually finding the clicks.
 
 *//*******************************************************************/
-
-
-
 #include "Repair.h"
 
 #include <math.h>
 
-#include "InterpolateAudio.h"
-#include "WaveTrack.h"
 #include "AudacityMessageBox.h"
-
+#include "EffectOutputTracks.h"
+#include "EffectUIServices.h"
+#include "InterpolateAudio.h"
 #include "LoadEffects.h"
+#include "WaveTrack.h"
+#include "TimeStretching.h"
 
 const ComponentInterfaceSymbol EffectRepair::Symbol
 { XO("Repair") };
@@ -73,25 +72,32 @@ bool EffectRepair::IsInteractive() const
 
 bool EffectRepair::Process(EffectInstance &, EffectSettings &)
 {
-   //v This may be too much copying for EffectRepair. To support Cancel, may be able to copy much less.
-   //  But for now, Cancel isn't supported without this.
-   this->CopyInputTracks(); // Set up mOutputTracks. //v This may be too much copying for EffectRepair.
+   // This may be too much copying for EffectRepair. To support Cancel, may be
+   // able to copy much less.
+   // But for now, Cancel isn't supported without this.
+   // Repair doesn't make sense for stretched clips, so don't pass a stretch
+   // interval.
+   EffectOutputTracks outputs { *mTracks, GetType(), {} };
    bool bGoodResult = true;
 
    int count = 0;
-   for( auto track : mOutputTracks->Selected< WaveTrack >() ) {
-      const
-      double trackStart = track->GetStartTime();
+   for (auto track : outputs.Get().Selected<WaveTrack>()) {
+      const double trackStart = track->GetStartTime();
       const double repair_t0 = std::max(mT0, trackStart);
-      const
-      double trackEnd = track->GetEndTime();
+      const double trackEnd = track->GetEndTime();
       const double repair_t1 = std::min(mT1, trackEnd);
-      const
-      double repair_deltat = repair_t1 - repair_t0;
+      const double repair_deltat = repair_t1 - repair_t0;
       if (repair_deltat > 0) {  // selection is within track audio
          const auto repair0 = track->TimeToLongSamples(repair_t0);
          const auto repair1 = track->TimeToLongSamples(repair_t1);
          const auto repairLen = repair1 - repair0;
+         if (TimeStretching::HasPitchOrSpeed(*track, repair_t0, repair_t1)) {
+            EffectUIServices::DoMessageBox(*this,
+               XO(
+"The Repair effect cannot be applied within stretched or shrunk clips") );
+            bGoodResult = false;
+            break;
+         }
          if (repairLen > 128) {
             EffectUIServices::DoMessageBox(*this,
                XO(
@@ -120,37 +126,39 @@ bool EffectRepair::Process(EffectInstance &, EffectSettings &)
             break;
          }
 
-         if (!ProcessOne(count, track, s0,
-                         // len is at most 5 * 128.
-                         len.as_size_t(),
-                         repairStart,
-                         // repairLen is at most 128.
-                         repairLen.as_size_t() )) {
-            bGoodResult = false;
-            break;
-         }
+         for (const auto pChannel : track->Channels())
+            if (!ProcessOne(count++, *pChannel, s0,
+               // len is at most 5 * 128.
+               len.as_size_t(),
+               repairStart,
+               // repairLen is at most 128.
+               repairLen.as_size_t())
+            ) {
+               bGoodResult = false;
+               goto done;
+            }
       }
-
-      count++;
    }
+done:
 
-   this->ReplaceProcessedTracks(bGoodResult);
+   if (bGoodResult)
+      outputs.Commit();
+
    return bGoodResult;
 }
 
-bool EffectRepair::ProcessOne(int count, WaveTrack * track,
-                              sampleCount start,
-                              size_t len,
-                              size_t repairStart, size_t repairLen)
+bool EffectRepair::ProcessOne(int count, WaveChannel &track,
+   sampleCount start, size_t len, size_t repairStart, size_t repairLen)
 {
    Floats buffer{ len };
-   track->GetFloats(buffer.get(), start, len);
+   track.GetFloats(buffer.get(), start, len);
    InterpolateAudio(buffer.get(), len, repairStart, repairLen);
-   track->Set((samplePtr)&buffer[repairStart], floatSample,
+   if (!track.SetFloats(&buffer[repairStart],
       start + repairStart, repairLen,
       // little repairs shouldn't force dither on rendering:
       narrowestSampleFormat
-   );
+   ))
+      return false;
    return !TrackProgress(count, 1.0); // TrackProgress returns true on Cancel.
 }
 

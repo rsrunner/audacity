@@ -24,7 +24,9 @@ Paul Licameli split from AudacityProject.cpp
 #include "CodeConversions.h"
 #include "DBConnection.h"
 #include "FileNames.h"
+#include "PendingTracks.h"
 #include "Project.h"
+#include "ProjectFileIOExtension.h"
 #include "ProjectHistory.h"
 #include "ProjectSerializer.h"
 #include "FileNames.h"
@@ -32,16 +34,20 @@ Paul Licameli split from AudacityProject.cpp
 #include "TempDirectory.h"
 #include "TransactionScope.h"
 #include "WaveTrack.h"
+#include "WaveTrackUtilities.h"
 #include "BasicUI.h"
 #include "wxFileNameWrapper.h"
 #include "XMLFileReader.h"
 #include "SentryHelper.h"
 #include "MemoryX.h"
 
-#include "ProjectFormatExtensionsRegistry.h"
+#include "ProjectFileIOExtension.h"
+#include "ProjectFormatVersion.h"
 
 #include "BufferedStreamReader.h"
 #include "FromChars.h"
+
+#include "sqlite/SQLiteUtils.h"
 
 // Don't change this unless the file format changes
 // in an irrevocable way
@@ -161,57 +167,6 @@ static const char *ProjectFileSchema =
    "  samples              BLOB"
    ");";
 
-// This singleton handles initialization/shutdown of the SQLite library.
-// It is needed because our local SQLite is built with SQLITE_OMIT_AUTOINIT
-// defined.
-//
-// It's safe to use even if a system version of SQLite is used that didn't
-// have SQLITE_OMIT_AUTOINIT defined.
-class SQLiteIniter
-{
-public:
-   SQLiteIniter()
-   {
-      // Enable URI filenames for all connections
-      mRc = sqlite3_config(SQLITE_CONFIG_URI, 1);
-      if (mRc == SQLITE_OK)
-      {
-         mRc = sqlite3_config(SQLITE_CONFIG_LOG, LogCallback, nullptr);
-         if (mRc == SQLITE_OK)
-         {
-            mRc = sqlite3_initialize();
-         }
-      }
-
-#ifdef NO_SHM
-      if (mRc == SQLITE_OK)
-      {
-         // Use the "unix-excl" VFS to make access to the DB exclusive.  This gets
-         // rid of the "<database name>-shm" shared memory file.
-         //
-         // Though it shouldn't, it doesn't matter if this fails.
-         auto vfs = sqlite3_vfs_find("unix-excl");
-         if (vfs)
-         {
-            sqlite3_vfs_register(vfs, 1);
-         }
-      }
-#endif
-   }
-   ~SQLiteIniter()
-   {
-      // This function must be called single-threaded only
-      // It returns a value, but there's nothing we can do with it
-      (void) sqlite3_shutdown();
-   }
-
-   static void LogCallback(void *WXUNUSED(arg), int code, const char *msg)
-   {
-      wxLogMessage("sqlite3 message: (%d) %s", code, msg);
-   }
-
-   int mRc;
-};
 
 class SQLiteBlobStream final
 {
@@ -348,7 +303,7 @@ public:
        // Reading 64k proved to be slower, (64k - 8) gives no measurable difference
        // to reading 32k.
        // Reading 4k is slower than reading 32k.
-       : BufferedStreamReader(32 * 1024) 
+       : BufferedStreamReader(32 * 1024)
        , mDB(db)
        , mSchema(schema)
        , mTable(table)
@@ -419,8 +374,16 @@ constexpr std::array<const char*, 2> BufferedProjectBlobStream::Columns;
 
 bool ProjectFileIO::InitializeSQL()
 {
-   static SQLiteIniter sqliteIniter;
-   return sqliteIniter.mRc == SQLITE_OK;
+   if (audacity::sqlite::Initialize().IsError())
+      return false;
+
+   audacity::sqlite::SetLogCallback(
+      [](int code, std::string_view message) {
+         // message is forwarded from SQLite, so it is null-terminated
+         wxLogMessage("SQLite error (%d): %s", code, message.data());
+      });
+
+   return true;
 }
 
 static const AudacityProject::AttachedObjects::RegisteredFactory sFileIOKey{
@@ -852,18 +815,33 @@ bool ProjectFileIO::InstallSchema(sqlite3 *db, const char *schema /* = "main" */
 // An SQLite function that takes a blockid and looks it up in a set of
 // blockids captured during project load.  If the blockid isn't found
 // in the set, it will be deleted.
+namespace
+{
+struct ContextData final
+{
+   const AudacityProject& project;
+   const BlockIDs& blockids;
+};
+}
+
 void ProjectFileIO::InSet(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
-   BlockIDs *blockids = (BlockIDs *) sqlite3_user_data(context);
+   auto contextData = reinterpret_cast<ContextData*>(sqlite3_user_data(context));
    SampleBlockID blockid = sqlite3_value_int64(argv[0]);
 
-   sqlite3_result_int(context, blockids->find(blockid) != blockids->end());
+   sqlite3_result_int(
+      context,
+      contextData->blockids.find(blockid) != contextData->blockids.end() ||
+         ProjectFileIOExtensionRegistry::IsBlockLocked(
+            contextData->project, blockid));
 }
 
 bool ProjectFileIO::DeleteBlocks(const BlockIDs &blockids, bool complement)
 {
    auto db = DB();
    int rc;
+
+   ContextData contextData{ mProject, blockids };
 
    auto cleanup = finally([&]
    {
@@ -872,8 +850,7 @@ bool ProjectFileIO::DeleteBlocks(const BlockIDs &blockids, bool complement)
    });
 
    // Add the function used to verify each row's blockid against the set of active blockids
-   const void *p = &blockids;
-   rc = sqlite3_create_function(db, "inset", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, const_cast<void*>(p), InSet, nullptr, nullptr);
+   rc = sqlite3_create_function(db, "inset", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC, &contextData, InSet, nullptr, nullptr);
    if (rc != SQLITE_OK)
    {
       ADD_EXCEPTION_CONTEXT("sqlite3.rc", std::to_string(rc));
@@ -951,14 +928,14 @@ bool ProjectFileIO::CopyTo(const FilePath &destpath,
    // Get access to the active tracklist
    auto pProject = &mProject;
 
-   SampleBlockIDSet blockids;
+   WaveTrackUtilities::SampleBlockIDSet blockids;
 
    // Collect all active blockids
    if (prune)
    {
       for (auto trackList : tracks)
          if (trackList)
-            InspectBlocks( *trackList, {}, &blockids );
+            WaveTrackUtilities::InspectBlocks(*trackList, {}, &blockids);
    }
    // Collect ALL blockids
    else
@@ -1200,14 +1177,14 @@ bool ProjectFileIO::CopyTo(const FilePath &destpath,
 
 bool ProjectFileIO::ShouldCompact(const std::vector<const TrackList *> &tracks)
 {
-   SampleBlockIDSet active;
+   WaveTrackUtilities::SampleBlockIDSet active;
    unsigned long long current = 0;
 
    {
       auto fn = BlockSpaceUsageAccumulator( current );
       for (auto pTracks : tracks)
          if (pTracks)
-            InspectBlocks( *pTracks, fn,
+            WaveTrackUtilities::InspectBlocks(*pTracks, fn,
                &active // Visit unique blocks only
             );
    }
@@ -1624,6 +1601,16 @@ void ProjectFileIO::SetFileName(const FilePath &fileName)
 {
    auto &project = mProject;
 
+   if (!fileName.empty() && fileName != mFileName)
+   {
+      BasicUI::CallAfter(
+         [wThis = weak_from_this()]
+         {
+            if (auto pThis = wThis.lock())
+               pThis->Publish(ProjectFileIOMessage::ProjectFilePathChange);
+         });
+   }
+
    if (!mFileName.empty())
    {
       ActiveProjects::Remove(mFileName);
@@ -1773,18 +1760,18 @@ void ProjectFileIO::WriteXML(XMLWriter &xmlFile,
 
    ProjectFileIORegistry::Get().CallWriters(proj, xmlFile);
 
-   tracklist.Any().Visit([&](const Track *t)
-   {
-      auto useTrack = t;
-      if ( recording ) {
+   auto &pendingTracks = PendingTracks::Get(proj);
+   tracklist.Any().Visit([&](const Track &t) {
+      auto useTrack = &t;
+      if (recording) {
          // When append-recording, there is a temporary "shadow" track accumulating
          // changes and displayed on the screen but it is not yet part of the
          // regular track list.  That is the one that we want to back up.
          // SubstitutePendingChangedTrack() fetches the shadow, if the track has
          // one, else it gives the same track back.
-         useTrack = t->SubstitutePendingChangedTrack().get();
+         useTrack = &pendingTracks.SubstitutePendingChangedTrack(t);
       }
-      else if ( useTrack->GetId() == TrackId{} ) {
+      else if (useTrack->GetId() == TrackId{}) {
          // This is a track added during a non-appending recording that is
          // not yet in the undo history.  The UndoManager skips backing it up
          // when pushing.  Don't auto-save it.
@@ -1986,11 +1973,8 @@ bool ProjectFileIO::WriteDoc(const char *table,
    if (!writeStream("doc", data))
       return false;
 
-   const auto requiredVersion =
-      ProjectFormatExtensionsRegistry::Get().GetRequiredVersion(mProject);
-
    const wxString setVersionSql =
-      wxString::Format("PRAGMA user_version = %u", requiredVersion.GetPacked());
+      wxString::Format("PRAGMA user_version = %u", BaseProjectFormatVersion.GetPacked());
 
    if (!Query(setVersionSql.c_str(), [](auto...) { return 0; }))
    {
@@ -2004,27 +1988,54 @@ bool ProjectFileIO::WriteDoc(const char *table,
    return transaction.Commit();
 }
 
-bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
+ProjectFileIO::
+TentativeConnection::TentativeConnection(ProjectFileIO &projectFileIO)
+   : mProjectFileIO{ projectFileIO }
+{
+   mProjectFileIO.SaveConnection();
+}
+
+ProjectFileIO::
+TentativeConnection::TentativeConnection(TentativeConnection &&other)
+   : mProjectFileIO{ other.mProjectFileIO }
+   , mFileName{ other.mFileName }
+   , mCommitted{ other.mCommitted }
+{
+   other.mCommitted = true;
+}
+
+ProjectFileIO::TentativeConnection::~TentativeConnection()
+{
+   if (!mCommitted)
+      mProjectFileIO.RestoreConnection();
+}
+
+void ProjectFileIO::TentativeConnection::SetFileName(const FilePath &fileName)
+{
+   mFileName = fileName;
+}
+
+void ProjectFileIO::TentativeConnection::Commit()
+{
+   if (!mCommitted && !mFileName.empty()) {
+      mProjectFileIO.SetFileName(mFileName);
+      mProjectFileIO.DiscardConnection();
+      mCommitted = true;
+   }
+}
+
+auto ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
+   -> std::optional<TentativeConnection>
 {
    auto now = std::chrono::high_resolution_clock::now();
 
+   std::optional<TentativeConnection> result{ *this };
+
    bool success = false;
-
-   auto cleanup = finally([&]
-   {
-      if (!success)
-      {
-         RestoreConnection();
-      }
-   });
-
-   SaveConnection();
 
    // Open the project file
    if (!OpenConnection(fileName))
-   {
-      return false;
-   }
+      return {};
 
    int64_t rowId = -1;
 
@@ -2044,13 +2055,11 @@ bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
       mRecovered = true;
       mModified = true;
 
-      return true;
+      return result;
    }
 
    if (!useAutosave && !GetValue("SELECT ROWID FROM main.project WHERE id = 1;", rowId, false))
-   {
-      return false;
-   }
+      return {};
    else
    {
       // Load 'er up
@@ -2064,7 +2073,7 @@ bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
          SetError(
             XO("Unable to parse project information.")
          );
-         return false;
+         return {};
       }
 
       // Check for orphans blocks...sets mRecovered if any were deleted
@@ -2076,9 +2085,7 @@ bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
       {
          success = DeleteBlocks(blockids, true);
          if (!success)
-         {
-            return false;
-         }
+            return {};
       }
    
       // Remember if we used autosave or not
@@ -2097,20 +2104,14 @@ bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
    // A previously saved project will have a document in the project table, so
    // we use that knowledge to determine if this file is an unsaved/temporary
    // file or a permanent project file
-   wxString result;
-   success = GetValue("SELECT Count(*) FROM project;", result);
+   wxString queryResult;
+   success = GetValue("SELECT Count(*) FROM project;", queryResult);
    if (!success)
-   {
-      return false;
-   }
+      return {};
 
-   mTemporary = !result.IsSameAs(wxT("1"));
+   mTemporary = !queryResult.IsSameAs(wxT("1"));
 
-   SetFileName(fileName);
-
-   DiscardConnection();
-
-   success = true;
+   result->SetFileName(fileName);
 
    auto duration = std::chrono::high_resolution_clock::now() - now;
 
@@ -2118,7 +2119,7 @@ bool ProjectFileIO::LoadProject(const FilePath &fileName, bool ignoreAutosave)
       "Project loaded in %lld ms",
       std::chrono::duration_cast<std::chrono::milliseconds>(duration).count());
 
-   return true;
+   return result;
 }
 
 bool ProjectFileIO::UpdateSaved(const TrackList *tracks)
@@ -2137,6 +2138,8 @@ bool ProjectFileIO::UpdateSaved(const TrackList *tracks)
    {
       return false;
    }
+
+   ProjectFileIOExtensionRegistry::OnUpdateSaved(mProject, doc);
 
    return true;
 }
@@ -2300,10 +2303,11 @@ bool ProjectFileIO::SaveProject(
       }
 
       if (lastSaved) {
+         using namespace WaveTrackUtilities;
          // Bug2605: Be sure not to save orphan blocks
          bool recovered = mRecovered;
          SampleBlockIDSet blockids;
-         InspectBlocks( *lastSaved, {}, &blockids );
+         InspectBlocks(*lastSaved, {}, &blockids);
          // TODO: Not sure what to do if the deletion fails
          DeleteBlocks(blockids, true);
          // Don't set mRecovered if any were deleted
@@ -2322,16 +2326,14 @@ bool ProjectFileIO::SaveProject(
       // And make it the active project file 
       UseConnection(std::move(newConn), fileName);
    }
-   else
+
+   if (!UpdateSaved(nullptr))
    {
-      if ( !UpdateSaved( nullptr ) ) {
-         ShowError( {},
-            XO("Error Saving Project"),
-            FileException::WriteFailureMessage(fileName),
-            "Error:_Disk_full_or_not_writable"
-            );
-         return false;
-      }
+      ShowError(
+         {}, XO("Error Saving Project"),
+         FileException::WriteFailureMessage(fileName),
+         "Error:_Disk_full_or_not_writable");
+      return false;
    }
 
    // Reaching this point defines success and all the rest are no-fail
@@ -2363,13 +2365,13 @@ bool ProjectFileIO::OpenProject()
    return OpenConnection();
 }
 
-bool ProjectFileIO::CloseProject()
+void ProjectFileIO::CloseProject()
 {
    auto &currConn = CurrConn();
    if (!currConn)
    {
       wxLogDebug("Closing project with no database connection");
-      return true;
+      return;
    }
 
    // Save the filename since CloseConnection() will clear it
@@ -2391,8 +2393,6 @@ bool ProjectFileIO::CloseProject()
             RemoveProject(filename);
       }
    }
-
-   return true;
 }
 
 bool ProjectFileIO::ReopenProject()
@@ -2419,6 +2419,11 @@ bool ProjectFileIO::IsTemporary() const
 bool ProjectFileIO::IsRecovered() const
 {
    return mRecovered;
+}
+
+void ProjectFileIO::MarkTemporary()
+{
+   mTemporary = true;
 }
 
 wxLongLong ProjectFileIO::GetFreeDiskSpace() const
@@ -2541,6 +2546,7 @@ int64_t ProjectFileIO::GetBlockUsage(SampleBlockID blockid)
 int64_t ProjectFileIO::GetCurrentUsage(
    const std::vector<const TrackList*> &trackLists) const
 {
+   using namespace WaveTrackUtilities;
    unsigned long long current = 0;
    const auto fn = BlockSpaceUsageAccumulator(current);
 
@@ -2574,9 +2580,9 @@ int64_t ProjectFileIO::GetDiskUsage(DBConnection &conn, SampleBlockID blockid /*
    if (blockid == 0)
    {
       static const char* statement =
-R"(SELECT 
-	sum(length(blockid) + length(sampleformat) + 
-	length(summin) + length(summax) + length(sumrms) + 
+R"(SELECT
+	sum(length(blockid) + length(sampleformat) +
+	length(summin) + length(summax) + length(sumrms) +
 	length(summary256) + length(summary64k) +
 	length(samples))
 FROM sampleblocks;)";
@@ -2586,9 +2592,9 @@ FROM sampleblocks;)";
    else
    {
       static const char* statement =
-R"(SELECT 
-	length(blockid) + length(sampleformat) + 
-	length(summin) + length(summax) + length(sumrms) + 
+R"(SELECT
+	length(blockid) + length(sampleformat) +
+	length(summin) + length(summax) + length(sumrms) +
 	length(summary256) + length(summary64k) +
 	length(samples)
 FROM sampleblocks WHERE blockid = ?1;)";

@@ -17,7 +17,8 @@ def macos_collect_rpaths(file):
                 rpath_match = re.match(r'path\s+(.*)\s+\(', lines[line_index + 2])
                 if rpath_match:
                     rpath = rpath_match.group(1)
-                    result.append(rpath)
+                    if rpath not in result:
+                        result.append(rpath)
 
             line_index = line_index + 1
 
@@ -93,7 +94,11 @@ def run_install_name_tool(file, dep_path_prefix):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('bundle', help='The bundle to fix')
+    parser.add_argument('-config', help='Configuration type')
     args = parser.parse_args()
+
+    if (args.config == "Debug"):
+       exit(0)
 
     bundle = args.bundle
 

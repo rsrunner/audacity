@@ -16,21 +16,6 @@ Paul Licameli split from AudacityProject.cpp
 #include "Project.h"
 #include "QualitySettings.h"
 #include "widgets/NumericTextCtrl.h"
-#include "prefs/TracksBehaviorsPrefs.h"
-
-wxDEFINE_EVENT(EVT_PROJECT_SETTINGS_CHANGE, wxCommandEvent);
-
-namespace {
-   void Notify(
-      AudacityProject &project, ProjectSettings::EventCode code,
-      long previousValue )
-   {
-      wxCommandEvent e{ EVT_PROJECT_SETTINGS_CHANGE };
-      e.SetInt( static_cast<int>( code ) );
-      e.SetExtraLong( previousValue );
-      project.ProcessEvent( e );
-   }
-}
 
 static const AudacityProject::AttachedObjects::RegisteredFactory
 sProjectSettingsKey{
@@ -68,15 +53,7 @@ ProjectSettings::ProjectSettings(AudacityProject &project)
 
 void ProjectSettings::UpdatePrefs()
 {
-   gPrefs->Read(wxT("/AudioFiles/ShowId3Dialog"), &mShowId3Dialog, true);
-   gPrefs->Read(wxT("/GUI/EmptyCanBeDirty"), &mEmptyCanBeDirty, true);
    gPrefs->Read(wxT("/GUI/ShowSplashScreen"), &mShowSplashScreen, true);
-   mSoloPref = TracksBehaviorsSolo.Read();
-   // Update the old default to the NEW default.
-   if (mSoloPref == wxT("Standard"))
-      mSoloPref = wxT("Simple");
-   gPrefs->Read(wxT("/GUI/TracksFitVerticallyZoomed"),
-      &mTracksFitVerticallyZoomed, false);
    //   gPrefs->Read(wxT("/GUI/UpdateSpectrogram"),
    //     &mViewInfo.bUpdateSpectrogram, true);
 
@@ -96,9 +73,9 @@ void ProjectSettings::UpdatePrefs()
 }
 
 void ProjectSettings::SetTool(int tool) {
-   if (auto oldValue = mCurrentTool; oldValue != tool) {
+   if (auto oldValue = mCurrentTool; tool != oldValue) {
       mCurrentTool = tool;
-      Notify( mProject, ChangedTool, oldValue );
+      Publish({ ProjectSettingsEvent::ChangedTool, oldValue, tool });
    }
 }
 

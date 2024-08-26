@@ -25,17 +25,18 @@
 #include "OAuthService.h"
 #include "ServiceConfig.h"
 
-#include "NetworkManager.h"
-#include "Request.h"
 #include "IResponse.h"
 #include "MultipartData.h"
+#include "NetworkManager.h"
+#include "NetworkUtils.h"
+#include "Request.h"
 
 #include "CodeConversions.h"
 
 #include "TempDirectory.h"
 #include "FileNames.h"
 
-namespace cloud::audiocom
+namespace audacity::cloud::audiocom
 {
 namespace
 {
@@ -157,7 +158,7 @@ UploadFailedPayload ParseUploadFailedMessage(const std::string& payloadText)
       {
          if (!err.value.IsString())
             continue;
-         
+
          payload.additionalErrors.emplace_back(
             err.name.GetString(), err.value.GetString());
       }
@@ -178,23 +179,25 @@ struct AudiocomUploadOperation final :
       const ServiceConfig& serviceConfig, wxString fileName,
       wxString projectName, bool isPublic,
       UploadService::CompletedCallback completedCallback,
-      UploadService::ProgressCallback progressCallback)
+      UploadService::ProgressCallback progressCallback, AudiocomTrace trace)
        : mServiceConfig(serviceConfig)
        , mFileName(std::move(fileName))
        , mProjectName(std::move(projectName))
        , mIsPublic(isPublic)
+       , mAudiocomTrace(trace)
        , mCompletedCallback(std::move(completedCallback))
        , mProgressCallback(std::move(progressCallback))
    {
    }
 
    const ServiceConfig& mServiceConfig;
-   
+
    const wxString mFileName;
    const wxString mProjectName;
 
    const bool mIsPublic;
 
+   const AudiocomTrace mAudiocomTrace;
    UploadService::CompletedCallback mCompletedCallback;
    UploadService::ProgressCallback mProgressCallback;
 
@@ -206,6 +209,7 @@ struct AudiocomUploadOperation final :
 
    std::string mAudioID;
    std::string mUploadToken;
+   std::string mUserName;
 
    std::string mAudioSlug;
 
@@ -215,7 +219,7 @@ struct AudiocomUploadOperation final :
 
    mutable std::mutex mStatusMutex;
    mutable std::mutex mCallbacksMutex;
-   
+
    std::weak_ptr<audacity::network_manager::IResponse> mActiveResponse;
    bool mCompleted {};
    bool mAborted {};
@@ -264,25 +268,30 @@ struct AudiocomUploadOperation final :
 
       if (mCompletedCallback)
       {
+         const auto uploadURL = mAuthToken.empty() ?
+                                   mServiceConfig.GetFinishUploadPage(
+                                      mAudioID, mUploadToken, mAudiocomTrace) :
+                                   mServiceConfig.GetAudioURL(
+                                      mUserName, mAudioSlug, mAudiocomTrace);
 
          mCompletedCallback(
             { UploadOperationCompleted::Result::Success,
-              UploadSuccessfulPayload { mAudioID, mAudioSlug } });
+              UploadSuccessfulPayload { mAudioID, mAudioSlug, mUploadToken, uploadURL } });
       }
-      
+
       mProgressCallback = {};
       mCompletedCallback = {};
    }
 
    void InitiateUpload(std::string_view authToken)
-   {      
+   {
       using namespace audacity::network_manager;
 
       Request request(mServiceConfig.GetAPIUrl("/audio"));
-         
+
       request.setHeader(
          common_headers::ContentType, common_content_types::ApplicationJson);
-      
+
       request.setHeader(
          common_headers::Accept, common_content_types::ApplicationJson);
 
@@ -305,7 +314,7 @@ struct AudiocomUploadOperation final :
       response->setRequestFinishedCallback(
          [response, sharedThis = shared_from_this(), this](auto) {
             auto responseCode = response->getHTTPCode();
-            
+
             if (responseCode == 201)
             {
                HandleUploadPolicy(response->readAll<std::string>());
@@ -334,7 +343,7 @@ struct AudiocomUploadOperation final :
    void HandleUploadPolicy(std::string uploadPolicyJSON)
    {
       using namespace audacity::network_manager;
-      
+
       rapidjson::Document document;
       document.Parse(uploadPolicyJSON.data(), uploadPolicyJSON.length());
 
@@ -378,10 +387,10 @@ struct AudiocomUploadOperation final :
          FailPromise(UploadOperationCompleted::Result::FileNotFound, {});
          return;
       }
-      
+
 
       const auto url = document["url"].GetString();
-      
+
       mSuccessUrl = document["success"].GetString();
       mFailureUrl = document["fail"].GetString();
       mProgressUrl = document["progress"].GetString();
@@ -395,6 +404,8 @@ struct AudiocomUploadOperation final :
 
          if (extra.HasMember("token"))
             mUploadToken = extra["token"].GetString();
+
+         mUserName = extra["audio"]["username"].GetString();
       }
 
       const auto encType = document.HasMember("enctype") ?
@@ -402,22 +413,22 @@ struct AudiocomUploadOperation final :
                               "multipart/form-data";
 
       Request request(url);
-      
+
       request.setHeader(common_headers::ContentType, encType);
       request.setHeader(
          common_headers::Accept, common_content_types::ApplicationJson);
 
       // We only lock late and for very short time
       std::lock_guard<std::mutex> lock(mStatusMutex);
-      
+
       if (mAborted)
          return;
-      
+
       auto response =
          NetworkManager::GetInstance().doPost(request, std::move(form));
 
       mActiveResponse = response;
-      
+
       response->setRequestFinishedCallback(
          [response, sharedThis = shared_from_this(), this](auto)
          {
@@ -434,11 +445,11 @@ struct AudiocomUploadOperation final :
    {
       {
          std::lock_guard<std::mutex> callbacksLock(mCallbacksMutex);
-         
+
          if (mProgressCallback)
             mProgressCallback(current, total);
       }
-      
+
       const auto now = Clock::now();
 
       if ((now - mLastProgressReportTime) > mServiceConfig.GetProgressCallbackTimeout())
@@ -447,7 +458,7 @@ struct AudiocomUploadOperation final :
 
          using namespace audacity::network_manager;
          Request request(mProgressUrl);
-         
+
          request.setHeader(
             common_headers::ContentType, common_content_types::ApplicationJson);
          request.setHeader(
@@ -459,7 +470,7 @@ struct AudiocomUploadOperation final :
 
          if (mAborted)
             return;
-         
+
          auto response = NetworkManager::GetInstance().doPatch(
             request, payload.data(), payload.size());
 
@@ -470,12 +481,12 @@ struct AudiocomUploadOperation final :
    void HandleS3UploadCompleted(std::shared_ptr<audacity::network_manager::IResponse> response)
    {
       using namespace audacity::network_manager;
-      
+
       const auto responseCode = response->getHTTPCode();
 
       const bool success =
          responseCode == 200 || responseCode == 201 || responseCode == 204;
-      
+
       Request request(success ? mSuccessUrl : mFailureUrl);
       SetRequiredHeaders(request);
 
@@ -524,7 +535,7 @@ struct AudiocomUploadOperation final :
 
          if (auto activeResponse = mActiveResponse.lock())
             activeResponse->abort();
-      } 
+      }
 
       std::lock_guard<std::mutex> callbacksLock(mCallbacksMutex);
 
@@ -539,7 +550,7 @@ struct AudiocomUploadOperation final :
    void DiscardResult() override
    {
       using namespace audacity::network_manager;
-      
+
       Abort();
 
       auto url = mServiceConfig.GetAPIUrl("/audio");
@@ -564,7 +575,8 @@ UploadService::UploadService(const ServiceConfig& config, OAuthService& service)
 
 UploadOperationHandle UploadService::Upload(
    const wxString& fileName, const wxString& projectName, bool isPublic,
-   CompletedCallback completedCallback, ProgressCallback progressCallback)
+   CompletedCallback completedCallback, ProgressCallback progressCallback,
+   AudiocomTrace trace)
 {
    if (!wxFileExists(fileName))
    {
@@ -577,10 +589,13 @@ UploadOperationHandle UploadService::Upload(
 
    auto operation = std::make_shared<AudiocomUploadOperation>(
       mServiceConfig, fileName, projectName, isPublic,
-      std::move(completedCallback), std::move(progressCallback));
+      std::move(completedCallback), std::move(progressCallback), trace);
 
-   mOAuthService.ValidateAuth([operation](std::string_view authToken)
-                              { operation->InitiateUpload(authToken); });
+   mOAuthService.ValidateAuth(
+      [operation, this](std::string_view authToken) {
+         operation->InitiateUpload(authToken);
+      },
+      trace, false);
 
    return UploadOperationHandle { operation };
 }
@@ -648,4 +663,4 @@ const auto tempChangedSubscription = TempDirectory::GetTempPathObserver().Subscr
 });
 }
 
-} // namespace cloud::audiocom
+} // namespace audacity::cloud::audiocom

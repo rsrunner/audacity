@@ -7,17 +7,14 @@ PlayableTrackControls.cpp
 Paul Licameli split from TrackInfo.cpp
 
 **********************************************************************/
-
 #include "PlayableTrackControls.h"
-
-
-
+#include "PlayableTrack.h"
 #include "PlayableTrackButtonHandles.h"
 #include "AColor.h"
-#include "Track.h"
-#include "../../../TrackInfo.h"
+#include "../../ui/CommonTrackInfo.h"
 #include "../../../TrackPanelDrawingContext.h"
 #include "ViewInfo.h"
+#include "prefs/TracksBehaviorsPrefs.h"
 #include "RealtimeEffectManager.h"
 
 #include <wx/dc.h>
@@ -28,27 +25,25 @@ using TCPLine = TrackInfo::TCPLine;
 
 namespace {
 
+   constexpr auto MuteSoloButtonHeight = 20;
+   constexpr auto MuteSoloButtonExtra = 2;
+   constexpr auto EffectsButtonHeight = 22;
+
 void GetNarrowMuteHorizontalBounds( const wxRect & rect, wxRect &dest )
 {
    dest.x = rect.x;
-   dest.width = rect.width / 2 + 1;
+   dest.width = (rect.width - CommonTrackInfo::Margin) / 2;
 }
 
 void GetNarrowSoloHorizontalBounds( const wxRect & rect, wxRect &dest )
 {
-   wxRect muteRect;
-   GetNarrowMuteHorizontalBounds( rect, muteRect );
-   dest.x = rect.x + muteRect.width;
-   dest.width = rect.width - muteRect.width + TitleSoloBorderOverlap;
+   dest.width = (rect.width - CommonTrackInfo::Margin) / 2;
+   dest.x = rect.x + rect.width - dest.width;
 }
 
-void GetEffectsBounds( const wxRect & rect, wxRect &dest )
+void GetEffectsButtonBounds( const wxRect & rect, wxRect &dest )
 {
-   constexpr int padding = 2;
-   dest.x = rect.x + padding;
-   dest.y = rect.y + padding;
-   dest.width = rect.width - padding * 2;
-   dest.height = rect.height - padding * 2;
+   dest = rect;
 }
 
 void GetWideMuteSoloHorizontalBounds( const wxRect & rect, wxRect &dest )
@@ -136,7 +131,7 @@ void WideMuteDrawFunction
    GetWideMuteSoloHorizontalBounds( rect, bev );
    auto target = dynamic_cast<MuteButtonHandle*>( context.target.get() );
    bool hit = target && target->GetTrack().get() == pTrack;
-   bool captured = hit && target->IsClicked();
+   bool captured = hit && target->IsDragging();
    bool down = captured && bev.Contains( context.lastState.GetPosition());
    MuteOrSoloDrawFunction( dc, bev, pTrack, down, captured, false, hit );
 }
@@ -150,7 +145,7 @@ void WideSoloDrawFunction
    GetWideMuteSoloHorizontalBounds( rect, bev );
    auto target = dynamic_cast<SoloButtonHandle*>( context.target.get() );
    bool hit = target && target->GetTrack().get() == pTrack;
-   bool captured = hit && target->IsClicked();
+   bool captured = hit && target->IsDragging();
    bool down = captured && bev.Contains( context.lastState.GetPosition());
    MuteOrSoloDrawFunction( dc, bev, pTrack, down, captured, true, hit );
 }
@@ -160,29 +155,23 @@ void MuteAndSoloDrawFunction
   const wxRect &rect, const Track *pTrack )
 {
    auto dc = &context.dc;
-   bool bHasSoloButton = TrackInfo::HasSoloButton();
 
    wxRect bev = rect;
-   if ( bHasSoloButton )
-      GetNarrowMuteHorizontalBounds( rect, bev );
-   else
-      GetWideMuteSoloHorizontalBounds( rect, bev );
+
+   GetNarrowMuteHorizontalBounds( rect, bev );
    {
       auto target = dynamic_cast<MuteButtonHandle*>( context.target.get() );
       bool hit = target && target->GetTrack().get() == pTrack;
-      bool captured = hit && target->IsClicked();
+      bool captured = hit && target->IsDragging();
       bool down = captured && bev.Contains( context.lastState.GetPosition());
       MuteOrSoloDrawFunction( dc, bev, pTrack, down, captured, false, hit );
    }
-
-   if( !bHasSoloButton )
-      return;
 
    GetNarrowSoloHorizontalBounds( rect, bev );
    {
       auto target = dynamic_cast<SoloButtonHandle*>( context.target.get() );
       bool hit = target && target->GetTrack().get() == pTrack;
-      bool captured = hit && target->IsClicked();
+      bool captured = hit && target->IsDragging();
       bool down = captured && bev.Contains( context.lastState.GetPosition());
       MuteOrSoloDrawFunction( dc, bev, pTrack, down, captured, true, hit );
    }
@@ -196,11 +185,11 @@ void EffectsDrawFunction
 
    wxRect bev = rect;
 
-   GetEffectsBounds( rect, bev );
+   GetEffectsButtonBounds( rect, bev );
    {
       auto target = dynamic_cast<EffectsButtonHandle*>( context.target.get() );
       bool hit = target && target->GetTrack().get() == pTrack;
-      bool captured = hit && target->IsClicked();
+      bool captured = hit && target->IsDragging();
       bool down = captured && bev.Contains( context.lastState.GetPosition());
       EffectsDrawFunction( dc, bev, pTrack, down, captured, hit );
    }
@@ -208,22 +197,20 @@ void EffectsDrawFunction
 }
 
 void PlayableTrackControls::GetMuteSoloRect
-(const wxRect & rect, wxRect & dest, bool solo, bool bHasSoloButton,
+(const wxRect & rect_, wxRect & dest, bool solo,
  const Track *pTrack)
 {
+   const auto rect = wxRect(rect_).Deflate(CommonTrackInfo::Margin);
+
    auto &trackControl = static_cast<const CommonTrackControls&>(
       TrackControls::Get( *pTrack ) );
-   auto resultsM = TrackInfo::CalcItemY( trackControl.GetTCPLines(), TCPLine::kItemMute );
-   auto resultsS = TrackInfo::CalcItemY( trackControl.GetTCPLines(), TCPLine::kItemSolo );
-   dest.height = resultsS.second;
+   const auto [yMute, yHeight] = TrackInfo::CalcItemY( trackControl.GetTCPLines(), TCPLine::kItemMute );
+   const auto [ySolo, sHeight] = TrackInfo::CalcItemY( trackControl.GetTCPLines(), TCPLine::kItemSolo );
+   dest.height = sHeight;
 
-   int yMute = resultsM.first;
-   int ySolo = resultsS.first;
-
-   bool bSameRow = ( yMute == ySolo );
-   bool bNarrow = bSameRow && bHasSoloButton;
-
-   if( bNarrow )
+   const auto bSameRow = ( yMute == ySolo );
+   
+   if( bSameRow )
    {
       if( solo )
          GetNarrowSoloHorizontalBounds( rect, dest );
@@ -236,21 +223,20 @@ void PlayableTrackControls::GetMuteSoloRect
    if( bSameRow || !solo )
       dest.y = rect.y + yMute;
    else
-      dest.y = rect.y + ySolo;
-
+      dest.y = rect.y + ySolo; 
 }
 
-void PlayableTrackControls::GetEffectsRect
-(const wxRect & rect, wxRect & dest, const Track *pTrack)
+void PlayableTrackControls::GetEffectsButtonRect
+(const wxRect & rect_, wxRect & dest, const Track *pTrack)
 {
+   const auto rect = wxRect(rect_).Deflate(CommonTrackInfo::Margin);
+
    auto &trackControl = static_cast<const CommonTrackControls&>(
       TrackControls::Get( *pTrack ) );
    const auto resultsE = TrackInfo::CalcItemY( trackControl.GetTCPLines(), TCPLine::kItemEffects );
-   dest.x = rect.x;
+   GetEffectsButtonBounds(rect, dest);
    dest.y = rect.y + resultsE.first;
-   dest.width = rect.width;
    dest.height = resultsE.second;
-
 }
 
 const TCPLines& PlayableTrackControls::StaticNoteTCPLines()
@@ -258,9 +244,9 @@ const TCPLines& PlayableTrackControls::StaticNoteTCPLines()
    static TCPLines playableTrackTCPLines;
    static std::once_flag flag;
    std::call_once( flag, []{
-      playableTrackTCPLines = CommonTrackControls::StaticTCPLines();
+      playableTrackTCPLines = CommonTrackInfo::StaticTCPLines();
       playableTrackTCPLines.insert( playableTrackTCPLines.end(), {
-      { TCPLine::kItemMute | TCPLine::kItemSolo, kTrackInfoBtnSize + 1, 0,
+      { TCPLine::kItemMute | TCPLine::kItemSolo, MuteSoloButtonHeight, MuteSoloButtonExtra,
          MuteAndSoloDrawFunction },
       } );
    } );
@@ -272,13 +258,13 @@ const TCPLines& PlayableTrackControls::StaticWaveTCPLines()
    static TCPLines playableTrackTCPLines;
    static std::once_flag flag;
    std::call_once( flag, []{
-      playableTrackTCPLines = CommonTrackControls::StaticTCPLines();
+      playableTrackTCPLines = CommonTrackInfo::StaticTCPLines();
       playableTrackTCPLines.insert( playableTrackTCPLines.end(), {
-      { TCPLine::kItemMute | TCPLine::kItemSolo, kTrackInfoBtnSize + 1, 0,
+      { TCPLine::kItemMute | TCPLine::kItemSolo, MuteSoloButtonHeight, MuteSoloButtonExtra,
          MuteAndSoloDrawFunction },
       } );
       playableTrackTCPLines.insert( playableTrackTCPLines.end(), {
-      { TCPLine::kItemEffects, kTrackEffectsBtnHeight + 1, 0,
+      { TCPLine::kItemEffects, EffectsButtonHeight, 0,
          EffectsDrawFunction },
       } );
    } );

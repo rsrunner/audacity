@@ -11,7 +11,8 @@
 #ifndef __AUDACITY_EFFECT_NYQUIST__
 #define __AUDACITY_EFFECT_NYQUIST__
 
-#include "../StatefulEffect.h"
+#include "StatefulEffect.h"
+#include "../StatefulEffectUIServices.h"
 #include "FileNames.h"
 #include "SampleCount.h"
 #include "wxPanelWrapper.h"
@@ -22,6 +23,8 @@ class wxArrayString;
 class wxFileName;
 class wxCheckBox;
 class wxTextCtrl;
+
+class EffectOutputTracks;
 
 #define NYQUISTEFFECTS_VERSION wxT("1.0.0.0")
 
@@ -71,8 +74,9 @@ struct NyquistSettings {
    // Other fields, to do
 };
 
-class AUDACITY_DLL_API NyquistEffect final
-   : public EffectWithSettings<NyquistSettings, StatefulEffect>
+class AUDACITY_DLL_API NyquistEffect final :
+    public EffectWithSettings<NyquistSettings, StatefulEffect>,
+    public StatefulEffectUIServices
 {
 public:
 
@@ -89,7 +93,7 @@ public:
    VendorSymbol GetVendor() const override;
    wxString GetVersion() const override;
    TranslatableString GetDescription() const override;
-   
+
    ManualPageID ManualPage() const override;
    FilePath HelpPage() const override;
 
@@ -120,7 +124,7 @@ public:
 
    bool Init() override;
    bool Process(EffectInstance &instance, EffectSettings &settings) override;
-   int ShowHostInterface(EffectPlugin &plugin, wxWindow &parent,
+   int ShowHostInterface(EffectBase &plugin, wxWindow &parent,
       const EffectDialogFactory &factory,
       std::shared_ptr<EffectInstance> &pInstance, EffectSettingsAccess &access,
       bool forceModal = false) override;
@@ -144,7 +148,8 @@ private:
    static int mReentryCount;
    // NyquistEffect implementation
 
-   bool ProcessOne();
+   struct NyxContext;
+   bool ProcessOne(NyxContext &nyxContext, EffectOutputTracks *pOutputs);
 
    void BuildPromptWindow(ShuttleGui & S);
    void BuildEffectWindow(ShuttleGui & S);
@@ -168,19 +173,9 @@ private:
    FileNames::FileType ParseFileType(const wxString & text);
    FileNames::FileTypes ParseFileTypes(const wxString & text);
 
-   static int StaticGetCallback(float *buffer, int channel,
-                                int64_t start, int64_t len, int64_t totlen,
-                                void *userdata);
-   static int StaticPutCallback(float *buffer, int channel,
-                                int64_t start, int64_t len, int64_t totlen,
-                                void *userdata);
    static void StaticOutputCallback(int c, void *userdata);
    static void StaticOSCallback(void *userdata);
 
-   int GetCallback(float *buffer, int channel,
-                   int64_t start, int64_t len, int64_t totlen);
-   int PutCallback(float *buffer, int channel,
-                   int64_t start, int64_t len, int64_t totlen);
    void OutputCallback(int c);
    void OSCallback();
 
@@ -279,27 +274,12 @@ private:
    int               mVersion;   // Syntactic version of Nyquist plug-in (not to be confused with mReleaseVersion)
    std::vector<NyqControl>   mControls;
 
-   unsigned          mCurNumChannels;
-   WaveTrack         *mCurTrack[2];
-   sampleCount       mCurStart[2];
-   sampleCount       mCurLen;
    sampleCount       mMaxLen;
    int               mTrackIndex;
    bool              mFirstInGroup;
    double            mOutputTime;
    unsigned          mCount;
    unsigned          mNumSelectedChannels;
-   double            mProgressIn;
-   double            mProgressOut;
-   double            mProgressTot;
-   double            mScale;
-
-   using Buffer = std::unique_ptr<float[]>;
-   Buffer            mCurBuffer[2];
-   sampleCount       mCurBufferStart[2];
-   size_t            mCurBufferLen[2];
-
-   WaveTrack        *mOutputTrack[2];
 
    wxArrayString     mCategories;
 
@@ -310,8 +290,6 @@ private:
    int               mMergeClips;
 
    wxTextCtrl *mCommandText;
-
-   std::exception_ptr mpException {};
 
    DECLARE_EVENT_TABLE()
 

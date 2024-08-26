@@ -34,6 +34,8 @@ public:
 
    virtual ~ZoomHandle();
 
+   std::shared_ptr<const Track> FindTrack() const override;
+
    bool HandlesRightClick() override;
 
    Result Click

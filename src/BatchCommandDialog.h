@@ -15,6 +15,7 @@
 #include <wx/defs.h>
 
 #include "BatchCommands.h"
+#include "wxPanelWrapper.h"
 
 class wxWindow;
 class wxTextCtrl;
@@ -57,6 +58,7 @@ class MacroCommandDialog final : public wxDialogWrapper {
 
    CommandID mInternalCommandName;
 
+   AudacityProject& mProject;
    const MacroCommandsCatalog mCatalog;
 
    DECLARE_EVENT_TABLE()

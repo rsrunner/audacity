@@ -12,6 +12,7 @@
 #define __AUDACITY_EFFECT_AUTODUCK__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "ShuttleAutomation.h"
 #include <float.h> // for DBL_MAX
 #include "wxPanelWrapper.h"
@@ -19,10 +20,13 @@
 class wxBitmap;
 class wxTextCtrl;
 class ShuttleGui;
+class WaveChannel;
 
 #define AUTO_DUCK_PANEL_NUM_CONTROL_POINTS 5
 
-class EffectAutoDuck final : public StatefulEffect
+class EffectAutoDuck final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EffectAutoDuck *
@@ -56,7 +60,7 @@ public:
 private:
    // EffectAutoDuck implementation
 
-   bool ApplyDuckFade(int trackNum, WaveTrack *t, double t0, double t1);
+   bool ApplyDuckFade(int trackNum, WaveChannel &track, double t0, double t1);
 
    void OnValueChanged(wxCommandEvent & evt);
 
@@ -71,7 +75,7 @@ private:
    double mThresholdDb;
    double mMaximumPause;
 
-   const WaveTrack *mControlTrack;
+   const WaveTrack *mControlTrack{};
 
    wxTextCtrl *mDuckAmountDbBox;
    wxTextCtrl *mInnerFadeDownLenBox;
@@ -82,7 +86,7 @@ private:
    wxTextCtrl *mMaximumPauseBox;
 
    class Panel;
-   Panel *mPanel;
+   Panel *mPanel{};
 
    const EffectParameterMethods& Parameters() const override;
    DECLARE_EVENT_TABLE()

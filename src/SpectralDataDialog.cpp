@@ -41,9 +41,8 @@
 #include "AudioIO.h"
 #include "ClientData.h"
 #include "Clipboard.h"
-#include "commands/CommandContext.h"
-#include "commands/CommandManager.h"
-#include "Menus.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "UndoManager.h"
 #include "Prefs.h"
 #include "Project.h"
@@ -139,9 +138,10 @@ public:
    explicit SpectralDataDialogWorker( AudacityProject &project );
    ~SpectralDataDialogWorker();
 
-   void OnToolChanged(wxCommandEvent &evt);
+   void OnToolChanged(ProjectSettingsEvent);
    void OnIdle(wxIdleEvent &evt);
 private:
+   Observer::Subscription mSettingsSubscription;
    AudacityProject &mProject;
    unsigned mPrevNViews = 0;
 };
@@ -216,7 +216,7 @@ void SpectralDataDialog::Populate(ShuttleGui & S)
             .AddSlider( {}, 5, 10, 1);
 
       S.AddWindow(safenew wxStaticLine{ S.GetParent() });
-      
+
       S.Id(ID_CHECKBOX_OVERTONES)
          .AddCheckBox(
             XXO("Auto-select overtones (beta)"),
@@ -241,7 +241,7 @@ void SpectralDataDialog::Populate(ShuttleGui & S)
 
 void SpectralDataDialog::OnAudioIO(AudioIOEvent ev)
 {
-   if (ev.type != AudioIOEvent::MONITOR)
+   if (ev.type != AudioIOEvent::MONITOR && ev.type != AudioIOEvent::PAUSE)
       mAudioIOBusy = ev.on;
 }
 
@@ -366,7 +366,8 @@ SpectralDataDialog *SpectralDataDialog::Find( AudacityProject *pProject )
 SpectralDataDialogWorker::SpectralDataDialogWorker(AudacityProject &project)
    : mProject{ project }
 {
-   project.Bind(EVT_PROJECT_SETTINGS_CHANGE, &SpectralDataDialogWorker::OnToolChanged, this);
+   mSettingsSubscription = ProjectSettings::Get(project)
+      .Subscribe(*this, &SpectralDataDialogWorker::OnToolChanged);
    wxTheApp->Bind(wxEVT_IDLE, &SpectralDataDialogWorker::OnIdle, this);
 }
 
@@ -375,10 +376,9 @@ SpectralDataDialogWorker::~SpectralDataDialogWorker()
    wxTheApp->Unbind(wxEVT_IDLE, &SpectralDataDialogWorker::OnIdle, this);
 }
 
-void SpectralDataDialogWorker::OnToolChanged(wxCommandEvent &evt)
+void SpectralDataDialogWorker::OnToolChanged(ProjectSettingsEvent evt)
 {
-   evt.Skip();
-   if (evt.GetInt() == ProjectSettings::ChangedTool) {
+   if (evt.type == ProjectSettingsEvent::ChangedTool) {
       // Find not Get to avoid creating the dialog if not yet done
       if (auto pDialog = SpectralDataDialog::Find(&mProject);
           pDialog && pDialog->IsShown())
@@ -390,7 +390,7 @@ void SpectralDataDialogWorker::OnToolChanged(wxCommandEvent &evt)
 
          auto &projectSettings = ProjectSettings::Get( mProject );
          if (projectSettings.GetTool() == value) {
-            auto oldValue = static_cast<Type>( evt.GetExtraLong() );
+            auto oldValue = evt.oldValue;
             if (oldValue + 1 == value)
                // continue tool rotation
                wxTheApp->CallAfter([&]{ projectSettings.SetTool(
@@ -410,9 +410,9 @@ void SpectralDataDialogWorker::OnToolChanged(wxCommandEvent &evt)
 
 static bool HasVisibleSpectralView(WaveTrack *wt)
 {
-   auto &trackView = TrackView::Get(*wt);
-   if ( auto waveTrackViewPtr = dynamic_cast<WaveTrackView*>(&trackView) ) {
-      const auto range = waveTrackViewPtr->GetSubViews();
+   auto &view = ChannelView::Get(*wt->GetChannel(0));
+   if (auto waveChannelViewPtr = dynamic_cast<WaveChannelView*>(&view)) {
+      const auto range = waveChannelViewPtr->GetSubViews();
       return std::any_of( range.begin(), range.end(),
          [](const auto &pair){
             return dynamic_cast<SpectrumView*>(pair.second.get()); } );
@@ -482,14 +482,14 @@ void OnSpectralEditingPanel(const CommandContext &context)
    dialog.Show( !dialog.IsShown() );
 }
 
-using namespace MenuTable;
-MenuTable::AttachedItem sAttachment{
+using namespace MenuRegistry;
+MenuRegistry::AttachedItem sAttachment{
    wxT("View/Other/Toolbars/Toolbars/Other"),
    Command( wxT("ShowSpectralSelectionPanel"),
       XXO("Spectra&l Selection Panel"),
       OnSpectralEditingPanel,
       AlwaysEnabledFlag,
-      CommandManager::Options{}
+      Options{}
          .CheckTest( [](AudacityProject &project) {
             // Find not Get to avoid creating the dialog if not yet done
             auto pDialog = SpectralDataDialog::Find(&project);

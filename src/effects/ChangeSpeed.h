@@ -14,6 +14,7 @@
 #define __AUDACITY_EFFECT_CHANGESPEED__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "ShuttleAutomation.h"
 #include <wx/weakref.h>
 
@@ -23,8 +24,11 @@ class wxTextCtrl;
 class LabelTrack;
 class NumericTextCtrl;
 class ShuttleGui;
+class WaveChannel;
 
-class EffectChangeSpeed final : public StatefulEffect
+class EffectChangeSpeed final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EffectChangeSpeed *
@@ -61,7 +65,13 @@ public:
 private:
    // EffectChangeSpeed implementation
 
-   bool ProcessOne(WaveTrack *t, sampleCount start, sampleCount end);
+   using Gap = std::pair<double, double>;
+   using Gaps = std::vector<Gap>;
+   Gaps FindGaps(
+      const WaveTrack &track, const double curT0, const double curT1);
+
+   bool ProcessOne(const WaveChannel &track, WaveChannel &outputTrack,
+      sampleCount start, sampleCount end);
    bool ProcessLabelTrack(LabelTrack *t);
 
    // handlers
@@ -85,7 +95,6 @@ private:
 
    // track related
    int    mCurTrackNum;
-   double mMaxNewLength;
    double mCurT0;
    double mCurT1;
 
@@ -114,7 +123,7 @@ private:
    // private effect parameters
    int      mToVinyl;         // to standard vinyl speed (rpm)
    double   mToLength;        // target length of selection
-   NumericFormatSymbol mFormat;          // time control format
+   NumericFormatID mFormat;          // time control format
 
    const EffectParameterMethods& Parameters() const override;
    DECLARE_EVENT_TABLE()

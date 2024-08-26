@@ -22,11 +22,12 @@ Paul Licameli split from TrackPanel.cpp
 #include "SelectionState.h"
 #include "ProjectAudioIO.h"
 #include "../../../../images/Cursors.h"
-#include "../../../tracks/ui/TimeShiftHandle.h"
 
 #include <wx/cursor.h>
 #include <wx/event.h>
 #include <wx/translation.h>
+
+#include <cassert>
 
 LabelTrackHit::LabelTrackHit( const std::shared_ptr<LabelTrack> &pLT )
    : mpLT{ pLT }
@@ -111,6 +112,11 @@ UIHandlePtr LabelGlyphHandle::HitTest
 
 LabelGlyphHandle::~LabelGlyphHandle()
 {
+}
+
+std::shared_ptr<const Track> LabelGlyphHandle::FindTrack() const
+{
+   return mpLT;
 }
 
 void LabelGlyphHandle::HandleGlyphClick
@@ -325,13 +331,13 @@ bool LabelGlyphHandle::HandleGlyphDragRelease
 
               if (!done) {
                   //otherwise, select all tracks
-                  for (auto t : tracks.Any())
+                  for (auto t : tracks)
                       selectionState.SelectTrack(*t, true, true);
               }
 
               // Do this after, for its effect on TrackPanel's memory of last selected
               // track (which affects shift-click actions)
-              selectionState.SelectTrack(*pTrack.get(), true, true);
+              selectionState.SelectTrack(*pTrack, true, true);
 
               // PRL: bug1659 -- make selection change undo correctly
               updated = !ProjectAudioIO::Get(project).IsAudioActive();

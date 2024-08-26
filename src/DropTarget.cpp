@@ -16,10 +16,7 @@
 #include "FileNames.h"
 #include "Project.h"
 #include "ProjectFileManager.h"
-#include "ProjectWindow.h"
 #include "TrackPanel.h"
-#include "import/Import.h"
-#include "import/ImportMIDI.h"
 
 #if wxUSE_DRAG_AND_DROP
 class FileObject final : public wxFileDataObject
@@ -159,28 +156,8 @@ public:
    {
       // Experiment shows that this function can be reached while there is no
       // catch block above in wxWidgets.  So stop all exceptions here.
-      return GuardedCall< bool > ( [&] {
-         wxArrayString sortednames(filenames);
-         sortednames.Sort(FileNames::CompareNoCase);
-
-         auto cleanup = finally( [&] {
-            ProjectWindow::Get( *mProject ).HandleResize(); // Adjust scrollers for NEW track sizes.
-         } );
-
-         for (const auto &name : sortednames) {
-#ifdef USE_MIDI
-            if (FileNames::IsMidi(name))
-               DoImportMIDI( *mProject, name );
-            else
-#endif
-               ProjectFileManager::Get( *mProject ).Import(name);
-         }
-
-         auto &window = ProjectWindow::Get( *mProject );
-         window.ZoomAfterImport(nullptr);
-
-         return true;
-      } );
+      return GuardedCall<bool>(
+         [&] { return ProjectFileManager::Get(*mProject).Import(filenames); });
    }
 
 private:
@@ -193,7 +170,7 @@ static const AudacityProject::AttachedObjects::RegisteredFactory key{
       // We can import now, so become a drag target
       //   SetDropTarget(safenew AudacityDropTarget(this));
       //   mTrackPanel->SetDropTarget(safenew AudacityDropTarget(this));
-      
+
       TrackPanel::Get( project )
          .SetDropTarget(
             // SetDropTarget takes ownership

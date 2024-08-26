@@ -14,10 +14,16 @@
 
 #include <wx/setup.h> // for wxUSE_* macros
 
-#include "StatefulEffect.h"
 #include "EqualizationUI.h"
+#include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 
-class EffectEqualization : public StatefulEffect
+
+class WaveChannel;
+
+class EffectEqualization :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EqualizationParameters *
@@ -26,7 +32,7 @@ public:
    static const ComponentInterfaceSymbol Symbol;
 
    EffectEqualization(int Options = kEqLegacy);
-   
+
    virtual ~EffectEqualization();
 
    // ComponentInterface implementation
@@ -66,14 +72,15 @@ public:
 private:
    // EffectEqualization implementation
 
-   bool ProcessOne(int count, WaveTrack * t,
-                   sampleCount start, sampleCount len);
-   
+   struct Task;
+   bool ProcessOne(Task &task, int count, const WaveChannel &t,
+      sampleCount start, sampleCount len);
+
    wxWeakRef<wxWindow> mUIParent{};
    EqualizationFilter mParameters;
    EqualizationCurvesList mCurvesList{ mParameters };
    const int mOptions;
-   EqualizationUI mUI{ *this, mUIParent, GetName(), mCurvesList, mOptions };
+   EqualizationUI mUI{ *this, *this, mUIParent, GetName(), mCurvesList, mOptions };
 
    const EffectParameterMethods& Parameters() const override;
 };

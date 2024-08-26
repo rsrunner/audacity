@@ -12,23 +12,23 @@ Paul Licameli split from TrackMenus.cpp
 #include "CommonCommandFlags.h"
 #include "ProjectHistory.h"
 #include "ProjectRate.h"
-#include "ProjectWindow.h"
+
 #include "SelectUtilities.h"
-#include "TrackPanelAx.h"
+#include "TrackFocus.h"
+#include "Viewport.h"
 #include "WaveTrack.h"
-#include "../../../../commands/CommandContext.h"
-#include "../../../../commands/CommandManager.h"
+#include "CommandContext.h"
+#include "MenuRegistry.h"
 #include "QualitySettings.h"
 
 namespace {
-using namespace MenuTable;
+using namespace MenuRegistry;
 
 void OnNewWaveTrack(const CommandContext &context)
 {
    auto &project = context.project;
    auto &tracks = TrackList::Get( project );
    auto &trackFactory = WaveTrackFactory::Get( project );
-   auto &window = ProjectWindow::Get( project );
 
    auto defaultFormat = QualitySettings::SampleFormatChoice();
 
@@ -45,7 +45,7 @@ void OnNewWaveTrack(const CommandContext &context)
       .PushState(XO("Created new audio track"), XO("New Track"));
 
    TrackFocus::Get(project).Set(track.get());
-   track->EnsureVisible();
+   Viewport::Get(project).ShowTrack(*track);
 }
 
 void OnNewStereoTrack(const CommandContext &context)
@@ -53,39 +53,32 @@ void OnNewStereoTrack(const CommandContext &context)
    auto &project = context.project;
    auto &tracks = TrackList::Get( project );
    auto &trackFactory = WaveTrackFactory::Get( project );
-   auto &window = ProjectWindow::Get( project );
 
    auto defaultFormat = QualitySettings::SampleFormatChoice();
    auto rate = ProjectRate::Get(project).GetRate();
 
    SelectUtilities::SelectNone( project );
 
-   auto left = trackFactory.Create(defaultFormat, rate);
-   left->SetName(tracks.MakeUniqueTrackName(WaveTrack::GetDefaultAudioTrackNamePreference()));
-   tracks.Add(left);
-   left->SetSelected(true);
-
-   auto right = trackFactory.Create(defaultFormat, rate);
-   right->SetName(left->GetName());
-   tracks.Add(right);
-   right->SetSelected(true);
-
-   tracks.MakeMultiChannelTrack(*left, 2, true);
+   tracks.Add(trackFactory.Create(2, defaultFormat, rate));
+   auto &newTrack = **tracks.rbegin();
+   newTrack.SetSelected(true);
+   newTrack.SetName(tracks.MakeUniqueTrackName(WaveTrack::GetDefaultAudioTrackNamePreference()));
 
    ProjectHistory::Get( project )
       .PushState(XO("Created new stereo audio track"), XO("New Track"));
 
-   TrackFocus::Get(project).Set(left.get());
-   left->EnsureVisible();
+   TrackFocus::Get(project).Set(&newTrack);
+   Viewport::Get(project).ShowTrack(newTrack);
 }
 
-AttachedItem sAttachment{ wxT("Tracks/Add/Add"),
+AttachedItem sAttachment{
    Items( "",
       Command( wxT("NewMonoTrack"), XXO("&Mono Track"), OnNewWaveTrack,
          AudioIONotBusyFlag(), wxT("Ctrl+Shift+N") ),
       Command( wxT("NewStereoTrack"), XXO("&Stereo Track"),
          OnNewStereoTrack, AudioIONotBusyFlag() )
-   )
+   ),
+   wxT("Tracks/Add/Add")
 };
 
 }

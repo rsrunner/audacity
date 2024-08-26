@@ -22,7 +22,6 @@ deps=(
    ladspa-devel
    lame-devel
    libid3tag-devel
-   libmad-devel
    taglib-devel
    twolame-devel
    libogg-devel
@@ -54,6 +53,9 @@ deps=(
    mesa-libEGL-devel
    mpg123-devel
    wavpack-devel
+   rapidjson
+   opusfile-devel
+   opus-devel
 )
 
 dnf install -y \

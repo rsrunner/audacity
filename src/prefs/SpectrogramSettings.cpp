@@ -104,38 +104,39 @@ SpectrogramSettings::Globals
    return instance;
 }
 
-static WaveTrack::Attachments::RegisteredFactory key1{
-   [](SampleTrack&){
-      return nullptr;
-   }
-};
+static const ChannelGroup::Attachments::RegisteredFactory
+key1{ [](auto &) { return nullptr; } };
 
 SpectrogramSettings &SpectrogramSettings::Get(const WaveTrack &track)
 {
    auto &mutTrack = const_cast<WaveTrack&>(track);
-   auto pSettings = static_cast<SpectrogramSettings*>(
-      mutTrack.WaveTrack::Attachments::Find(key1));
+   auto pSettings = mutTrack.Attachments::Find<SpectrogramSettings>(key1);
    if (pSettings)
       return *pSettings;
    else
       return SpectrogramSettings::defaults();
 }
 
-SpectrogramSettings &SpectrogramSettings::Own(WaveTrack &track)
+SpectrogramSettings &SpectrogramSettings::Get(const WaveChannel &channel)
 {
-   auto pSettings = static_cast<SpectrogramSettings*>(
-      track.WaveTrack::Attachments::Find(key1));
+   return Get(channel.GetTrack());
+}
+
+SpectrogramSettings &SpectrogramSettings::Own(WaveChannel &wc)
+{
+   auto &track = wc.GetTrack();
+   auto pSettings = track.Attachments::Find<SpectrogramSettings>(key1);
    if (!pSettings) {
       auto uSettings = std::make_unique<SpectrogramSettings>();
       pSettings = uSettings.get();
-      track.WaveTrack::Attachments::Assign(key1, std::move(uSettings));
+      track.Attachments::Assign(key1, std::move(uSettings));
    }
    return *pSettings;
 }
 
-void SpectrogramSettings::Reset(WaveTrack &track)
+void SpectrogramSettings::Reset(WaveChannel &wc)
 {
-   track.WaveTrack::Attachments::Assign(key1, nullptr);
+   wc.GetTrack().Attachments::Assign(key1, nullptr);
 }
 
 SpectrogramSettings::SpectrogramSettings()
@@ -239,8 +240,8 @@ const EnumValueSymbols &SpectrogramSettings::GetColorSchemeNames()
 {
    static const EnumValueSymbols result{
       // Keep in correspondence with enum SpectrogramSettings::ColorScheme:
-      /* i18n-hint: New color scheme for spectrograms */
-      { wxT("SpecColorNew"),     XC("Color (default)",   "spectrum prefs") },
+      /* i18n-hint: New color scheme for spectrograms, Roseus is proper name of the color scheme */
+      { wxT("SpecColorNew"),     XC("Color (Roseus)",    "spectrum prefs") },
       /* i18n-hint: Classic color scheme(from theme) for spectrograms */
       { wxT("SpecColorTheme"),   XC("Color (classic)",   "spectrum prefs") },
       /* i18n-hint: Grayscale color scheme for spectrograms */
@@ -694,22 +695,28 @@ bool SpectrogramSettings::SpectralSelectionEnabled() const
 #endif
 }
 
-static WaveTrack::Attachments::RegisteredFactory key2{
-   [](SampleTrack&){
-      return std::make_unique<SpectrogramBounds>();
-   }
-};
+static const ChannelGroup::Attachments::RegisteredFactory
+key2{ [](auto &) { return std::make_unique<SpectrogramBounds>(); } };
 
 SpectrogramBounds &SpectrogramBounds::Get( WaveTrack &track )
 {
-   return static_cast<SpectrogramBounds&>(
-      track.WaveTrack::Attachments::Get(key2));
+   return track.Attachments::Get<SpectrogramBounds>(key2);
 }
 
 const SpectrogramBounds &SpectrogramBounds::Get(
    const WaveTrack &track )
 {
    return Get(const_cast<WaveTrack&>(track));
+}
+
+SpectrogramBounds &SpectrogramBounds::Get(WaveChannel &channel)
+{
+   return Get(channel.GetTrack());
+}
+
+const SpectrogramBounds &SpectrogramBounds::Get(const WaveChannel &channel)
+{
+   return Get(const_cast<WaveChannel&>(channel));
 }
 
 SpectrogramBounds::~SpectrogramBounds() = default;
@@ -720,8 +727,9 @@ auto SpectrogramBounds::Clone() const -> PointerType
 }
 
 void SpectrogramBounds::GetBounds(
-   const WaveTrack &wt, float &min, float &max) const
+   const WaveChannel &wc, float &min, float &max) const
 {
+   auto &wt = wc.GetTrack();
    const double rate = wt.GetRate();
 
    const auto &settings = SpectrogramSettings::Get(wt);

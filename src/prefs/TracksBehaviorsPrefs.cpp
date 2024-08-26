@@ -62,16 +62,6 @@ void TracksBehaviorsPrefs::Populate()
    // ----------------------- End of main section --------------
 }
 
-ChoiceSetting TracksBehaviorsSolo{
-   wxT("/GUI/Solo"),
-   {
-      ByColumns,
-      { XO("Simple"),  XO("Multi-track"), XO("None") },
-      { wxT("Simple"), wxT("Multi"),      wxT("None") }
-   },
-   0, // "Simple"
-};
-
 namespace
 {
    const TranslatableString audioPasteModeText[] = {
@@ -108,12 +98,11 @@ void TracksBehaviorsPrefs::PopulateOrExchange(ShuttleGui & S)
       S.TieCheckBox(XXO("Enable cut &lines"),
                     {wxT("/GUI/EnableCutLines"),
                      false});
-      S.TieCheckBox(XXO("Enable &dragging selection edges"),
-                    {wxT("/GUI/AdjustSelectionEdges"),
-                     true});
-      S
-         .TieCheckBox(XXO("Editing a clip can &move other clips"),
+      S.TieCheckBox(XXO("Editing a clip can &move other clips"),
             EditClipsCanMove);
+      S.TieCheckBox(
+         XXO("&Always paste audio as new clips"),
+         { wxT("/GUI/PasteAsNewClips"), false });
       S.TieCheckBox(XXO("\"Move track focus\" c&ycles repeatedly through tracks"),
                     {wxT("/GUI/CircularTrackNavigation"),
                      false});
@@ -122,13 +111,6 @@ void TracksBehaviorsPrefs::PopulateOrExchange(ShuttleGui & S)
                      false});
       S.TieCheckBox(XXO("Use dialog for the &name of a new label"),
                     {wxT("/GUI/DialogForNameNewLabel"),
-                     false});
-#ifdef EXPERIMENTAL_SCROLLING_LIMITS
-      S.TieCheckBox(XXO("Enable scrolling left of &zero"),
-                    ScrollingPreference);
-#endif
-      S.TieCheckBox(XXO("Advanced &vertical zooming"),
-                    {wxT("/GUI/VerticalZooming"),
                      false});
 
       S.AddSpace(10);
@@ -166,11 +148,13 @@ void TracksBehaviorsPrefs::PopulateOrExchange(ShuttleGui & S)
             }
             S.EndVerticalLay();
 
-            S.AddVariableText(audioPasteModeText[i])->Bind(
-               wxEVT_LEFT_UP, [=](auto)
-               {
-                  radioButton->SetValue(true);
-               });
+            if (auto pText = S.AddVariableText(audioPasteModeText[i])) {
+               pText->Bind(
+                  wxEVT_LEFT_UP, [=](auto)
+                  {
+                     radioButton->SetValue(true);
+                  });
+            }
    #if wxUSE_ACCESSIBILITY
             safenew WindowAccessible(radioButton);
    #endif
@@ -180,7 +164,7 @@ void TracksBehaviorsPrefs::PopulateOrExchange(ShuttleGui & S)
       S.EndRadioButtonGroup();
    }
    S.EndStatic();
-   
+
    S.EndScroller();
 }
 
@@ -189,7 +173,6 @@ bool TracksBehaviorsPrefs::Commit()
    ShuttleGui S(this, eIsSavingToPrefs);
    PopulateOrExchange(S);
    EditClipsCanMove.Invalidate();
-   ScrollingPreference.Invalidate();
 
    return true;
 }

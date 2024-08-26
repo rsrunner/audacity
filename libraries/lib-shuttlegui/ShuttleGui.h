@@ -72,6 +72,7 @@ class wxListBox;
 class wxGrid;
 class ShuttlePrefs;
 class ReadOnlyText;
+class SpinControl;
 
 class WrappedType;
 
@@ -251,7 +252,7 @@ public:
 
 //-- Add functions.  These only add a widget or 2.
    void HandleOptionality(const TranslatableString &Prompt);
-   void AddPrompt(const TranslatableString &Prompt, int wrapWidth = 0);
+   wxStaticText* AddPrompt(const TranslatableString &Prompt, int wrapWidth = 0);
    void AddUnits(const TranslatableString &Prompt, int wrapWidth = 0);
    void AddTitle(const TranslatableString &Prompt, int wrapWidth = 0);
    wxWindow * AddWindow(wxWindow* pWindow, int PositionFlags = wxALIGN_CENTRE);
@@ -260,6 +261,9 @@ public:
    wxSlider * AddVSlider(const TranslatableString &Prompt, int pos, int Max);
    wxSpinCtrl * AddSpinCtrl(const TranslatableString &Prompt,
       int Value, int Max, int Min);
+   SpinControl* AddSpinControl(
+      const wxSize& size, const TranslatableString& Prompt, double Value,
+      double Max, double Min);
    wxTreeCtrl * AddTree();
 
    // Pass the same initValue to the sequence of calls to AddRadioButton and
@@ -294,8 +298,8 @@ public:
       const TranslatableString &Caption,
       const wxString &Value, const int nChars);
    wxTextCtrl * AddNumericTextBox(
-      const TranslatableString &Caption,
-      const wxString &Value, const int nChars);
+      const TranslatableString &Caption, const wxString& Value,
+      const int nChars, bool acceptEnter = false);
    wxTextCtrl * AddTextWindow(const wxString &Value);
    wxListBox * AddListBox(const wxArrayStringEx &choices);
 
@@ -400,8 +404,12 @@ public:
    wxTextCtrl * TieTextBox(
       const TranslatableString &Prompt, double &Value, const int nChars=0);
 
-   wxTextCtrl * TieNumericTextBox( const TranslatableString &Prompt, int &Value, const int nChars=0);
-   wxTextCtrl * TieNumericTextBox( const TranslatableString &Prompt, double &Value, const int nChars=0);
+   wxTextCtrl* TieNumericTextBox(
+      const TranslatableString& Prompt, int& Value, const int nChars = 0,
+      bool acceptEnter = false);
+   wxTextCtrl* TieNumericTextBox(
+      const TranslatableString& Prompt, double& Value, const int nChars = 0,
+      bool acceptEnter = false);
 
    wxCheckBox * TieCheckBox( const TranslatableString &Prompt, bool & Var );
    wxCheckBox * TieCheckBoxOnRight( const TranslatableString & Prompt, bool & Var );
@@ -431,6 +439,9 @@ public:
 
    wxSpinCtrl * TieSpinCtrl( const TranslatableString &Prompt,
       int &Value, const int max, const int min = 0 );
+   SpinControl* TieSpinControl(
+      const wxSize& size, const TranslatableString& Prompt, double& Value,
+      const double max, const double min = 0);
 
 
 //-- Variants of the standard Tie functions which do two step exchange in one go
@@ -469,7 +480,7 @@ public:
    virtual wxTextCtrl * TieNumericTextBox(
       const TranslatableString & Prompt,
       const DoubleSetting &Setting,
-      const int nChars);
+      const int nChars, bool acceptEnter = false);
    virtual wxSlider * TieSlider(
       const TranslatableString & Prompt,
       const IntSetting &Setting,
@@ -557,13 +568,17 @@ private:
       const TranslatableString &Prompt,
       WrappedType &  WrappedRef, const int nChars);
    wxTextCtrl * DoTieNumericTextBox(
-      const TranslatableString &Prompt, WrappedType &  WrappedRef, const int nChars);
+      const TranslatableString& Prompt, WrappedType& WrappedRef,
+      const int nChars, bool acceptEnter = false);
    wxCheckBox * DoTieCheckBox( const TranslatableString &Prompt, WrappedType & WrappedRef );
    wxSlider * DoTieSlider(
       const TranslatableString &Prompt,
       WrappedType & WrappedRef, const int max, const int min = 0 );
    wxSpinCtrl * DoTieSpinCtrl( const TranslatableString &Prompt,
       WrappedType & WrappedRef, const int max, const int min = 0 );
+   SpinControl* DoTieSpinControl(
+      const wxSize& size, const TranslatableString& Prompt,
+      WrappedType& WrappedRef, const double max, const double min = 0);
 
    std::vector<EnumValueSymbol> mRadioSymbols;
    wxString mRadioSettingName; /// The setting controlled by a group.

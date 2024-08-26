@@ -13,11 +13,12 @@
 #include <memory>
 #include <wx/scrolwin.h>
 #include <wx/weakref.h>
+#include <wx/splitter.h>
 
 #include "ThemedWrappers.h"
 #include "Observer.h"
 
-class Track;
+class SampleTrack;
 
 class wxButton;
 class wxStaticText;
@@ -31,21 +32,25 @@ class AudacityProject;
  * an individual track, provides controls for accessing effect settings,
  * stack manipulation (reorder, add, remove)
  */
-class RealtimeEffectPanel : public wxPanel
+class RealtimeEffectPanel : public wxSplitterWindow
 {
-   AButton* mToggleEffects{nullptr};
+   AButton* mToggleTrackEffects{nullptr};
+   AButton* mToggleMasterEffects{nullptr};
    wxStaticText* mTrackTitle {nullptr};
-   RealtimeEffectListWindow* mEffectList{nullptr};
-   wxWindow* mHeader{nullptr};
+   wxWindow* mTrackEffectsPanel{nullptr};
+   wxWindow* mProjectEffectsPanel{nullptr};
+   RealtimeEffectListWindow* mTrackEffectList{nullptr};
+   RealtimeEffectListWindow* mMasterEffectList{nullptr};
+   wxWindow* mTrackEffectsHeader{nullptr};
    AudacityProject& mProject;
 
-   std::weak_ptr<Track> mCurrentTrack;
+   std::weak_ptr<SampleTrack> mCurrentTrack;
 
    Observer::Subscription mTrackListChanged;
    Observer::Subscription mUndoSubscription;
    Observer::Subscription mFocusChangeSubscription;
 
-   std::vector<std::shared_ptr<Track>> mPotentiallyRemovedTracks;
+   std::vector<std::shared_ptr<SampleTrack>> mPotentiallyRemovedTracks;
 
    // RealtimeEffectPanel is wrapped using ThemedWindowWrapper,
    // so we cannot subscribe to Prefs directly
@@ -66,14 +71,14 @@ public:
 
    ~RealtimeEffectPanel() override;
 
-   void ShowPanel(Track* track, bool focus);
+   void ShowPanel(SampleTrack* track, bool focus);
    void HidePanel();
 
    /**
     * \brief Shows effects from the effect stack of the track
     * \param track Pointer to the existing track, or null
     */
-   void SetTrack(const std::shared_ptr<Track>& track);
+   void SetTrack(const std::shared_ptr<SampleTrack>& track);
    void ResetTrack();
 
    bool IsTopNavigationDomain(NavigationKind) const override { return true; }
@@ -81,5 +86,9 @@ public:
    void SetFocus() override;
    
 private:
+
+   void MakeTrackEffectPane();
+   void MakeMasterEffectPane();
+
    void OnCharHook(wxKeyEvent& evt);
 };

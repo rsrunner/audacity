@@ -11,7 +11,7 @@ Edward Hui
 
 #include "BrushHandle.h"
 #include "Scrubbing.h"
-#include "TrackView.h"
+#include "ChannelView.h"
 
 #include "AColor.h"
 #include "../../SpectrumAnalyst.h"
@@ -20,13 +20,13 @@ Edward Hui
 #include "ProjectAudioIO.h"
 #include "ProjectHistory.h"
 #include "../../ProjectSettings.h"
-#include "../../ProjectWindow.h"
+
 #include "../../RefreshCode.h"
 #include "../../SelectUtilities.h"
 #include "SelectionState.h"
 #include "../../SpectralDataManager.h"
 #include "../../TrackArtist.h"
-#include "../../TrackPanelAx.h"
+#include "TrackFocus.h"
 #include "../../TrackPanel.h"
 #include "../../TrackPanelDrawingContext.h"
 #include "../../TrackPanelMouseEvent.h"
@@ -54,7 +54,7 @@ enum {
 
 // #define SPECTRAL_EDITING_ESC_KEY
 
-bool BrushHandle::IsClicked() const
+bool BrushHandle::IsDragging() const
 {
    return mSelectionStateChanger.get() != NULL;
 }
@@ -62,14 +62,14 @@ bool BrushHandle::IsClicked() const
 namespace
 {
    /// Converts a frequency to screen y position.
-   wxInt64 FrequencyToPosition(const WaveTrack *wt,
+   wxInt64 FrequencyToPosition(const WaveChannel &wc,
                                double frequency,
                                wxInt64 trackTopEdge,
                                int trackHeight)
    {
-      const auto &settings = SpectrogramSettings::Get(*wt);
+      const auto &settings = SpectrogramSettings::Get(wc);
       float minFreq, maxFreq;
-      SpectrogramBounds::Get(*wt).GetBounds(*wt, minFreq, maxFreq);
+      SpectrogramBounds::Get(wc).GetBounds(wc, minFreq, maxFreq);
       const NumberScale numberScale(settings.GetScale(minFreq, maxFreq));
       const float p = numberScale.ValueToPosition(frequency);
       return trackTopEdge + wxInt64((1.0 - p) * trackHeight);
@@ -77,13 +77,13 @@ namespace
 
    /// Converts a position (mouse Y coordinate) to
    /// frequency, in Hz.
-   double PositionToFrequency(const WaveTrack *wt,
+   double PositionToFrequency(const WaveChannel &wc,
                               bool maySnap,
                               wxInt64 mouseYCoordinate,
                               wxInt64 trackTopEdge,
                               int trackHeight)
    {
-      const double rate = wt->GetRate();
+      const double rate = wc.GetRate();
 
       // Handle snapping
       if (maySnap &&
@@ -93,10 +93,10 @@ namespace
           trackTopEdge + trackHeight - mouseYCoordinate < FREQ_SNAP_DISTANCE)
          return -1;
 
-      const auto &settings = SpectrogramSettings::Get(*wt);
-      const auto &cache = SpectrogramBounds::Get(*wt);
+      const auto &settings = SpectrogramSettings::Get(wc);
+      const auto &cache = SpectrogramBounds::Get(wc);
       float minFreq, maxFreq;
-      cache.GetBounds(*wt, minFreq, maxFreq);
+      cache.GetBounds(wc, minFreq, maxFreq);
       const NumberScale numberScale(settings.GetScale(minFreq, maxFreq));
       const double p = double(mouseYCoordinate - trackTopEdge) / trackHeight;
       return numberScale.PositionToValue(1.0 - p);
@@ -121,16 +121,11 @@ namespace
    }
 
    // This returns true if we're a spectral editing track.
-   inline bool isSpectralSelectionView(const TrackView *pTrackView) {
-      return
-            pTrackView &&
-            pTrackView->IsSpectral() &&
-            pTrackView->FindTrack() &&
-            pTrackView->FindTrack()->TypeSwitch< bool >(
-                  [&](const WaveTrack *wt) {
-                     const auto &settings = SpectrogramSettings::Get(*wt);
-                     return settings.SpectralSelectionEnabled();
-                  });
+   inline bool isSpectralSelectionView(const ChannelView *pChannelView) {
+      const auto pChannel = pChannelView && pChannelView->IsSpectral()
+         ? pChannelView->FindChannel<const WaveChannel>() : nullptr;
+      return pChannel &&
+         SpectrogramSettings::Get(*pChannel).SpectralSelectionEnabled();
    }
    wxCursor *CrosshairCursor()
    {
@@ -140,36 +135,40 @@ namespace
    }
 }
 
-BrushHandle::BrushHandle
-      ( std::shared_ptr<StateSaver> pStateSaver,
-        const std::shared_ptr<TrackView> &pTrackView,
-        const TrackList &trackList,
-        const TrackPanelMouseState &st, const ViewInfo &viewInfo,
-        const std::shared_ptr<SpectralData> &pSpectralData,
-        const ProjectSettings &pSettings)
-      : mpStateSaver{ move(pStateSaver) }
-      , mpSpectralData(pSpectralData)
-      , mpView{ pTrackView }
+BrushHandle::BrushHandle(
+   std::shared_ptr<StateSaver> pStateSaver,
+   const std::shared_ptr<ChannelView> &pChannelView,
+   const TrackList &trackList,
+   const TrackPanelMouseState &st, const ViewInfo &viewInfo,
+   const std::shared_ptr<SpectralData> &pSpectralData,
+   const ProjectSettings &pSettings
+)  : mpStateSaver{ move(pStateSaver) }
+   , mpSpectralData(pSpectralData)
+   , mpView{ pChannelView }
 {
    const wxMouseState &state = st.state;
-   auto pTrack = pTrackView->FindTrack().get();
-   auto wt = dynamic_cast<WaveTrack *>(pTrack);
+   auto wc = pChannelView->FindChannel<WaveChannel>();
    double rate = mpSpectralData->GetSR();
 
    mRect = st.rect;
    mBrushRadius = pSettings.GetBrushRadius();
-   const auto &settings = SpectrogramSettings::Get(*wt);
+   const auto &settings = SpectrogramSettings::Get(*wc);
    mFreqUpperBound = settings.maxFreq - 1;
    mFreqLowerBound = settings.minFreq + 1;
    mIsSmartSelection = pSettings.IsSmartSelection();
    mIsOvertones = pSettings.IsOvertones();
    // Borrowed from TimeToLongSample
-   mSampleCountLowerBound = floor( pTrack->GetStartTime() * rate + 0.5);
-   mSampleCountUpperBound = floor( pTrack->GetEndTime() * rate + 0.5);
+   mSampleCountLowerBound = floor( wc->GetStartTime() * rate + 0.5);
+   mSampleCountUpperBound = floor( wc->GetEndTime() * rate + 0.5);
 }
 
 BrushHandle::~BrushHandle()
 {
+}
+
+std::shared_ptr<const Track> BrushHandle::FindTrack() const
+{
+   return TrackFromChannel(const_cast<BrushHandle&>(*this).FindChannel());
 }
 
 namespace {
@@ -232,10 +231,6 @@ UIHandle::Result BrushHandle::Click
       return Cancelled;
 
    wxMouseEvent &event = evt.event;
-   const auto sTrack = TrackList::Get( *pProject ).Lock( FindTrack() );
-   const auto pTrack = sTrack.get();
-   const WaveTrack *const wt =
-         static_cast<const WaveTrack*>(pTrack);
    auto &trackPanel = TrackPanel::Get( *pProject );
    auto &viewInfo = ViewInfo::Get( *pProject );
 
@@ -252,22 +247,19 @@ UIHandle::Result BrushHandle::Drag
       return Cancelled;
 
    wxMouseEvent &event = evt.event;
-   const auto sTrack = TrackList::Get( *pProject ).Lock( FindTrack() );
-   const auto pTrack = sTrack.get();
-   WaveTrack *const wt =
-         static_cast<WaveTrack*>(pTrack);
+   const auto wc = FindChannel();
    auto &trackPanel = TrackPanel::Get( *pProject );
    auto &viewInfo = ViewInfo::Get( *pProject );
 
    auto posXToHopNum = [&](int x0){
       double posTime = viewInfo.PositionToTime(x0, mRect.x);
-      sampleCount sc = wt->TimeToLongSamples(posTime);
+      sampleCount sc = wc->TimeToLongSamples(posTime);
       auto hopSize = mpSpectralData->GetHopSize();
       return (sc.as_long_long() + hopSize / 2) / hopSize;
    };
 
    auto posYToFreqBin = [&](int y0){
-      int resFreq = PositionToFrequency(wt, 0, y0, mRect.y, mRect.height);
+      int resFreq = PositionToFrequency(*wc, 0, y0, mRect.y, mRect.height);
       double resFreqBin = resFreq / (mpSpectralData->GetSR() / mpSpectralData->GetWindowSize());
       return static_cast<int>(std::round(resFreqBin));
    };
@@ -343,8 +335,9 @@ UIHandle::Result BrushHandle::Drag
          if(mIsSmartSelection){
             // Correct the y coord (snap to highest energy freq. bin)
             if(auto *sView = dynamic_cast<SpectrumView*>(pView.get())){
-               int resFreqBin = SpectralDataManager::FindFrequencySnappingBin(wt,
-                                 h0 * hopSize, hopSize, mFreqSnappingRatio, bm);
+               int resFreqBin =
+                  SpectralDataManager::FindFrequencySnappingBin(*wc,
+                     h0 * hopSize, hopSize, mFreqSnappingRatio, bm);
                if(resFreqBin != - 1)
                   bm = resFreqBin;
             }
@@ -352,7 +345,7 @@ UIHandle::Result BrushHandle::Drag
 
          if(mIsOvertones){
             // take bm and calculate the highest energy
-            std::vector<int> binsToWork = SpectralDataManager::FindHighestFrequencyBins(wt,
+            std::vector<int> binsToWork = SpectralDataManager::FindHighestFrequencyBins(*wc,
                             h0 * hopSize, hopSize, mOvertonesThreshold, bm);
             for(auto & bins: binsToWork)
                drawCircle(h0, bins);
@@ -420,13 +413,13 @@ void BrushHandle::Draw(
    }
 }
 
-std::weak_ptr<Track> BrushHandle::FindTrack()
+std::shared_ptr<WaveChannel> BrushHandle::FindChannel()
 {
    auto pView = mpView.lock();
    if (!pView)
       return {};
    else
-      return pView->FindTrack();
+      return pView->FindChannel<WaveChannel>();
 }
 
 BrushHandle::StateSaver::~StateSaver() = default;

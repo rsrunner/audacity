@@ -11,7 +11,7 @@ Paul Licameli split from class LabelTrack
 #ifndef __AUDACITY_LABEL_TRACK_VIEW__
 #define __AUDACITY_LABEL_TRACK_VIEW__
 
-#include "../../ui/CommonTrackView.h"
+#include "../../ui/CommonChannelView.h"
 #include "Observer.h"
 
 class LabelGlyphHandle;
@@ -37,12 +37,13 @@ constexpr int MAX_NUM_ROWS =80;
 
 class wxKeyEvent;
 
-class AUDACITY_DLL_API LabelTrackView final : public CommonTrackView
+class AUDACITY_DLL_API LabelTrackView final : public CommonChannelView
 {
    LabelTrackView( const LabelTrackView& ) = delete;
    LabelTrackView &operator=( const LabelTrackView& ) = delete;
 
-   void Reparent( const std::shared_ptr<Track> &parent ) override;
+   void Reparent(const std::shared_ptr<Track> &parent, size_t iChannel)
+      override;
 
 public:
    enum : int { DefaultFontSize = 0 }; //system preferred
@@ -51,7 +52,7 @@ public:
    static constexpr int LabelBarHeight { 6 }; 
 
    explicit
-   LabelTrackView( const std::shared_ptr<Track> &pTrack );
+   LabelTrackView(const std::shared_ptr<Channel> &pChannel);
    ~LabelTrackView() override;
 
    static LabelTrackView &Get( LabelTrack& );
@@ -88,10 +89,10 @@ private:
       (wxKeyEvent &event, ViewInfo &viewInfo, wxWindow *pParent,
       AudacityProject *project) override;
 
-   std::shared_ptr<TrackVRulerControls> DoGetVRulerControls() override;
+   std::shared_ptr<ChannelVRulerControls> DoGetVRulerControls() override;
 
    // Preserve some view state too for undo/redo purposes
-   void CopyTo( Track &track ) const override;
+   void CopyTo(Track &track, size_t iChannel) const override;
 
 public:
    static void DoEditLabels(

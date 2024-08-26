@@ -1,5 +1,5 @@
 #[[
-A small library defining various constants and utilities
+A library defining various constants and utilities
 
 No dependencies on wxWidgets.  Few symbols with linkage.  Many templates.
 
@@ -12,19 +12,27 @@ did not yet provide std::make_unique.  That explains the name.
 Audacity now uses C++17, and yet, need arose for other anticipations of future
 standards.  It also provides other pervasively used utilities that don't
 correspond to things in the standard.
-
-]]#
+]]
 
 set( SOURCES
+   AppEvents.cpp
+   AppEvents.h
    BufferedStreamReader.cpp
    BufferedStreamReader.h
    CFResources.cpp
    CFResources.h
+   CRTPBase.h
    Callable.cpp
    Callable.h
    CommandLineArgs.cpp
    CommandLineArgs.h
+   Composite.cpp
+   Composite.h
    GlobalVariable.h
+   IteratorX.cpp
+   IteratorX.h
+   LockFreeQueue.h
+   MathApprox.h
    MemoryX.cpp
    MemoryX.h
    MessageBuffer.h
@@ -43,6 +51,8 @@ set( SOURCES
    TypeList.cpp
    TypeList.h
    TypeListVisitor.h
+   TypeSwitch.cpp
+   TypeSwitch.h
    TypedAny.h
    Variant.cpp
    Variant.h

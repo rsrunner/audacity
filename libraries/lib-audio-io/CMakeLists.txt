@@ -12,6 +12,7 @@ set( SOURCES
    AudioIO.h
    AudioIOExt.cpp
    AudioIOExt.h
+   AudioIOListener.cpp
    AudioIOListener.h
    PlaybackSchedule.cpp
    PlaybackSchedule.h
@@ -21,9 +22,9 @@ set( SOURCES
    RingBuffer.h
 )
 set( LIBRARIES
+   lib-mixer-interface
    lib-project-rate-interface
    lib-realtime-effects
-   lib-sample-track-interface
 )
 audacity_library( lib-audio-io "${SOURCES}" "${LIBRARIES}"
    "" ""

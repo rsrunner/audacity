@@ -17,11 +17,12 @@ Paul Licameli
 class wxRect;
 
 class EnumValueSymbols;
+class WaveChannel;
 class WaveTrack;
 
 class AUDACITY_DLL_API WaveformSettings
    : public PrefsListener
-   , public ClientData::Cloneable< ClientData::UniquePtr >
+   , public ClientData::Cloneable<>
 {
 public:
 
@@ -29,9 +30,14 @@ public:
    //! Mutative access to attachment even if the track argument is const
    static WaveformSettings &Get(const WaveTrack &track);
 
+   /*!
+    @copydoc Get(const WaveTrack &);
+    */
+   static WaveformSettings &Get(const WaveChannel &channel);
+
    //! Guarantee independence of settings, then assign
    static void Set(
-      WaveTrack &track, std::unique_ptr<WaveformSettings> pSettings );
+      WaveChannel &channel, std::unique_ptr<WaveformSettings> pSettings );
 
    // Singleton for settings that are not per-track
    class AUDACITY_DLL_API Globals
@@ -90,11 +96,16 @@ public:
 };
 
 class AUDACITY_DLL_API WaveformScale
-   : public ClientData::Cloneable< ClientData::UniquePtr >
+   : public ClientData::Cloneable<>
 {
 public:
    //! Mutative access to attachment even if the track argument is const
    static WaveformScale &Get(const WaveTrack &track);
+
+   /*!
+    @copydoc Get(const WaveTrack &)
+    */
+   static WaveformScale &Get(const WaveChannel &channel);
 
    ~WaveformScale() override;
    PointerType Clone() const override;

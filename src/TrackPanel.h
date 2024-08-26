@@ -35,6 +35,7 @@ struct AudioIOEvent;
 // All cells of the TrackPanel are subclasses of this
 class CommonTrackPanelCell;
 
+class Channel;
 class SpectrumAnalyst;
 class Track;
 class TrackList;
@@ -46,9 +47,6 @@ class AdornedRulerPanel;
 class LWSlider;
 
 class TrackPanelAx;
-
-// Declared elsewhere, to reduce compilation dependencies
-class TrackPanelListener;
 
 struct TrackPanelDrawingContext;
 
@@ -89,7 +87,6 @@ class AUDACITY_DLL_API TrackPanel final
 
    void OnTrackListResizing(const TrackListEvent &event);
    void OnTrackListDeletion();
-   void OnEnsureVisible(const TrackListEvent & event);
    void UpdateViewIfNoTracks(); // Call this to update mViewInfo, etc, after track(s) removal, before Refresh().
 
    double GetMostRecentXPos();
@@ -114,14 +111,12 @@ class AUDACITY_DLL_API TrackPanel final
 
    void OnTrackMenu(Track *t = NULL);
 
-   void VerticalScroll( float fracPosition);
-
-   TrackPanelCell *GetFocusedCell() override;
+   std::shared_ptr<TrackPanelCell> GetFocusedCell() override;
    void SetFocusedCell() override;
 
    void UpdateVRulers();
    void UpdateVRuler(Track *t);
-   void UpdateTrackVRuler(Track *t);
+   void UpdateTrackVRuler(Track &t);
    void UpdateVRulerSize();
 
  protected:
@@ -155,7 +150,7 @@ public:
     (There may be multiple sub-views, each with a ruler.)
     If target is nullptr, returns an empty vector.
     */
-   std::vector<wxRect> FindRulerRects( const Track * target );
+   std::vector<wxRect> FindRulerRects(const Channel &target);
 
 protected:
    // Get the root object defining a recursive subdivision of the panel's
@@ -168,7 +163,6 @@ public:
    const TrackList * GetTracks() const { return mTracks.get(); }
    TrackList * GetTracks() { return mTracks.get(); }
    ViewInfo * GetViewInfo(){ return mViewInfo;}
-   TrackPanelListener * GetListener(){ return mListener;}
    AdornedRulerPanel * GetRuler(){ return mRuler;}
 
 protected:
@@ -190,9 +184,9 @@ protected:
       , mFocusChangeSubscription
       , mRealtimeEffectManagerSubscription
       , mSyncLockSubscription
+      , mProjectRulerInvalidatedSubscription
+      , mSelectionSubscription
    ;
-
-   TrackPanelListener *mListener;
 
    std::shared_ptr<TrackList> mTracks;
 

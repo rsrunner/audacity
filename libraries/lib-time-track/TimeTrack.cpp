@@ -12,8 +12,6 @@
 \brief A kind of Track used to 'warp time'
 
 *//*******************************************************************/
-
-
 #include "TimeTrack.h"
 
 #include <cfloat>
@@ -55,8 +53,8 @@ void TimeTrack::CleanState()
 {
    mEnvelope = std::make_unique<BoundedEnvelope>(true, TIMETRACK_MIN, TIMETRACK_MAX, 1.0);
 
-   SetRangeLower( 0.9 );
-   SetRangeUpper( 1.1 );
+   SetRangeLower( 0.2 );
+   SetRangeUpper( 2.0 );
    mDisplayLog = false;
 
    mEnvelope->SetTrackLen(DBL_MAX);
@@ -68,7 +66,7 @@ void TimeTrack::CleanState()
 
 TimeTrack::TimeTrack(const TimeTrack &orig, ProtectedCreationArg &&a,
    double *pT0, double *pT1
-)  : Track(orig, std::move(a))
+)  : UniqueChannelTrack{ orig, std::move(a) }
 {
    Init(orig);	// this copies the TimeTrack metadata (name, range, etc)
 
@@ -141,38 +139,43 @@ bool TimeTrack::SupportsBasicEditing() const
    return false;
 }
 
-Track::Holder TimeTrack::PasteInto( AudacityProject &project ) const
+Track::Holder TimeTrack::PasteInto(AudacityProject &project, TrackList &list)
+   const
 {
    // Maintain uniqueness of the time track!
    std::shared_ptr<TimeTrack> pNewTrack;
-   if( auto pTrack = *TrackList::Get( project ).Any<TimeTrack>().begin() )
+   if (auto pTrack = *TrackList::Get(project).Any<TimeTrack>().begin())
+      // leave list unchanged
       pNewTrack = pTrack->SharedPointer<TimeTrack>();
-   else
+   else {
       pNewTrack = std::make_shared<TimeTrack>();
+      list.Add(pNewTrack);
+   }
 
    // Should come here only for .aup3 import, not for paste (because the
    // track is skipped in cut/copy commands)
    // And for import we agree to replace the track contents completely
    pNewTrack->CleanState();
    pNewTrack->Init(*this);
-   pNewTrack->Paste(0.0, this);
+   pNewTrack->Paste(0.0, *this);
    pNewTrack->SetRangeLower(this->GetRangeLower());
    pNewTrack->SetRangeUpper(this->GetRangeUpper());
    return pNewTrack;
 }
 
-Track::Holder TimeTrack::Cut( double t0, double t1 )
+Track::Holder TimeTrack::Cut(double t0, double t1)
 {
-   auto result = Copy( t0, t1, false );
-   Clear( t0, t1 );
+   auto result = Copy(t0, t1, false);
+   Clear(t0, t1);
    return result;
 }
 
-Track::Holder TimeTrack::Copy( double t0, double t1, bool ) const
+Track::Holder TimeTrack::Copy(double t0, double t1, bool) const
 {
-   auto result = std::make_shared<TimeTrack>(*this, ProtectedCreationArg{}, &t0, &t1);
-   result->Init(*this);
-   return result;
+   auto track =
+      std::make_shared<TimeTrack>(*this, ProtectedCreationArg{}, &t0, &t1);
+   track->Init(*this);
+   return track;
 }
 
 namespace {
@@ -191,21 +194,21 @@ void TimeTrack::Clear(double t0, double t1)
    mEnvelope->CollapseRegion( t0, t1, sampleTime );
 }
 
-void TimeTrack::Paste(double t, const Track * src)
+void TimeTrack::Paste(double t, const Track &src)
 {
-   bool bOk = src && src->TypeSwitch< bool >( [&] (const TimeTrack *tt) {
+   bool bOk = src.TypeSwitch<bool>([&](const TimeTrack &tt) {
       auto sampleTime = 1.0 / GetRate(*this);
-      mEnvelope->PasteEnvelope
-         (t, tt->mEnvelope.get(), sampleTime);
+      mEnvelope->PasteEnvelope(t, tt.mEnvelope.get(), sampleTime);
       return true;
-   } );
+   });
 
-   if (! bOk )
+   if (!bOk)
       // THROW_INCONSISTENCY_EXCEPTION // ?
       (void)0;// intentionally do nothing.
 }
 
-void TimeTrack::Silence(double WXUNUSED(t0), double WXUNUSED(t1))
+void TimeTrack::Silence(
+   double WXUNUSED(t0), double WXUNUSED(t1), ProgressReporter)
 {
 }
 
@@ -214,7 +217,7 @@ void TimeTrack::InsertSilence(double t, double len)
    mEnvelope->InsertSpace(t, len);
 }
 
-Track::Holder TimeTrack::Clone() const
+Track::Holder TimeTrack::Clone(bool) const
 {
    auto result = std::make_shared<TimeTrack>(*this, ProtectedCreationArg{});
    result->Init(*this);
@@ -310,6 +313,17 @@ void TimeTrack::WriteXML(XMLWriter &xmlFile) const
    xmlFile.EndTag(wxT("timetrack"));
 }
 
+size_t TimeTrack::NIntervals() const
+{
+   return 0;
+}
+
+std::shared_ptr<WideChannelGroupInterval>
+TimeTrack::DoGetInterval(size_t iInterval)
+{
+   return {};
+}
+
 void TimeTrack::testMe()
 {
    GetEnvelope()->Flatten(0.0);
@@ -345,10 +359,12 @@ void TimeTrack::testMe()
 
 //! Installer of the time warper
 static Mixer::WarpOptions::DefaultWarp::Scope installer{
-[](const TrackList &list) -> const BoundedEnvelope*
+[](const AudacityProject *pProject) -> const BoundedEnvelope*
 {
-   if (auto pTimeTrack = *list.Any<const TimeTrack>().begin())
-      return pTimeTrack->GetEnvelope();
-   else
-      return nullptr;
+   if (pProject) {
+      auto &list = TrackList::Get(*pProject);
+      if (auto pTimeTrack = *list.Any<const TimeTrack>().begin())
+         return pTimeTrack->GetEnvelope();
+   }
+   return nullptr;
 } };

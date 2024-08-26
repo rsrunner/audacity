@@ -9,7 +9,6 @@
   Paul Licameli split from VSTEffect.h
 
 **********************************************************************/
-#if USE_VST
 
 #ifndef __AUDACITY_VST_EDITOR__
 #define __AUDACITY_VST_EDITOR__
@@ -17,8 +16,9 @@
 #include "VSTWrapper.h"
 #include "../EffectEditor.h"
 
-#include <wx/weakref.h>
+#include <wx/dialog.h>
 #include <wx/event.h>
+#include <wx/weakref.h>
 
 class VSTInstance;
 class wxSlider;
@@ -62,7 +62,7 @@ public:
 
    void Automate(int index, float value) override;
 
-   void OnSlider(wxCommandEvent& evt);    
+   void OnSlider(wxCommandEvent& evt);
 
    int ShowDialog(bool nonModal);
 
@@ -105,7 +105,7 @@ private:
 
    wxWindow* mParent;
    wxWeakRef<wxDialog> mDialog;
-   
+
    VSTControl* mControl{};
 
    // Mapping from parameter ID to string
@@ -115,5 +115,3 @@ private:
 };
 
 #endif
-
-#endif // USE_VST

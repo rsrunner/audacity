@@ -97,9 +97,10 @@ for registering for changes.
 
 
 
-#include "MemoryX.h"
+#include "IteratorX.h"
 #include "Prefs.h"
 #include "ShuttlePrefs.h"
+#include "SpinControl.h"
 #include "Theme.h"
 
 #include <wx/setup.h> // for wxUSE_* macros
@@ -234,10 +235,10 @@ void ShuttleGuiBase::HandleOptionality(const TranslatableString &Prompt)
 }
 
 /// Right aligned text string.
-void ShuttleGuiBase::AddPrompt(const TranslatableString &Prompt, int wrapWidth)
+wxStaticText* ShuttleGuiBase::AddPrompt(const TranslatableString &Prompt, int wrapWidth)
 {
    if( mShuttleMode != eIsCreating )
-      return;
+      return wxDynamicCast(wxWindow::FindWindowById( miId, mpDlg), wxStaticText);
    //wxLogDebug( "Prompt: [%s] Id:%i (%i)", Prompt.c_str(), miId, miIdSetByUser ) ;
    if( mpbOptionalFlag ){
       bool * pVar = mpbOptionalFlag;
@@ -246,7 +247,7 @@ void ShuttleGuiBase::AddPrompt(const TranslatableString &Prompt, int wrapWidth)
       //return;
    }
    if( Prompt.empty() )
-      return;
+      return nullptr;
    miProp=1;
    const auto translated = Prompt.Translation();
    auto text = safenew wxStaticText(GetParent(), -1, translated, wxDefaultPosition, wxDefaultSize,
@@ -256,6 +257,8 @@ void ShuttleGuiBase::AddPrompt(const TranslatableString &Prompt, int wrapWidth)
       text->Wrap(wrapWidth);
    mpWind->SetName(wxStripMenuCodes(translated)); // fix for bug 577 (NVDA/Narrator screen readers do not read static text in dialogs)
    UpdateSizersCore( false, wxALL | wxALIGN_CENTRE_VERTICAL, true );
+
+   return text;
 }
 
 /// Left aligned text string.
@@ -634,6 +637,25 @@ wxSpinCtrl * ShuttleGuiBase::AddSpinCtrl(
    return pSpinCtrl;
 }
 
+SpinControl* ShuttleGuiBase::AddSpinControl(
+   const wxSize& size, const TranslatableString& Prompt, double Value,
+   double Max, double Min)
+{
+   const auto translated = Prompt.Translation();
+   HandleOptionality( Prompt );
+   AddPrompt( Prompt );
+   UseUpId();
+   if( mShuttleMode != eIsCreating )
+      return dynamic_cast<SpinControl*>(wxWindow::FindWindowById(miId, mpDlg));
+   SpinControl * pSpinCtrl;
+   mpWind = pSpinCtrl = safenew SpinControl(
+      GetParent(), miId, Value, Min, Max, 1.0, true, wxDefaultPosition, size,
+      Prompt);
+   miProp=1;
+   UpdateSizers();
+   return pSpinCtrl;
+}
+
 wxTextCtrl * ShuttleGuiBase::AddTextBox(
    const TranslatableString &Caption, const wxString &Value, const int nChars)
 {
@@ -671,7 +693,8 @@ wxTextCtrl * ShuttleGuiBase::AddTextBox(
 }
 
 wxTextCtrl * ShuttleGuiBase::AddNumericTextBox(
-   const TranslatableString &Caption, const wxString &Value, const int nChars)
+   const TranslatableString& Caption, const wxString& Value, const int nChars,
+   bool acceptEnter)
 {
    const auto translated = Caption.Translation();
    HandleOptionality( Caption );
@@ -692,6 +715,9 @@ wxTextCtrl * ShuttleGuiBase::AddNumericTextBox(
 #else
    long flags = wxTE_LEFT;
 #endif
+
+   if (acceptEnter)
+      flags = wxTE_PROCESS_ENTER;
 
    wxTextValidator Validator(wxFILTER_NUMERIC);
    mpWind = pTextCtrl = safenew wxTextCtrl(GetParent(), miId, Value,
@@ -810,7 +836,7 @@ wxListCtrl * ShuttleGuiBase::AddListControlReportMode(
    SetProportions( 1 );
    mpWind = pListCtrl = safenew wxListCtrl(GetParent(), miId,
       wxDefaultPosition, wxSize(230,120),//wxDefaultSize,
-      GetStyle( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES | wxSUNKEN_BORDER ));
+      GetStyle( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES ));
 //   pListCtrl->SetMinSize( wxSize( 120,150 ));
    UpdateSizers();
 
@@ -941,8 +967,7 @@ wxScrolledWindow * ShuttleGuiBase::StartScroller(int iStyle)
       return wxDynamicCast(wxWindow::FindWindowById( miId, mpDlg), wxScrolledWindow);
 
    wxScrolledWindow * pScroller;
-   mpWind = pScroller = safenew wxScrolledWindow(GetParent(), miId, wxDefaultPosition, wxDefaultSize,
-      GetStyle( wxSUNKEN_BORDER ) );
+   mpWind = pScroller = safenew wxScrolledWindow(GetParent(), miId, wxDefaultPosition, wxDefaultSize);
    pScroller->SetScrollRate( 20,20 );
 
    // This fools NVDA into not saying "Panel" when the dialog gets focus
@@ -1366,6 +1391,45 @@ wxSpinCtrl * ShuttleGuiBase::DoTieSpinCtrl(
    return pSpinCtrl;
 }
 
+SpinControl* ShuttleGuiBase::DoTieSpinControl(
+   const wxSize& size, const TranslatableString& Prompt,
+   WrappedType& WrappedRef, const double max, const double min)
+{
+   HandleOptionality( Prompt );
+   // The Add function does a UseUpId(), so don't do it here in that case.
+   if( mShuttleMode == eIsCreating )
+      return AddSpinControl(size, Prompt, WrappedRef.ReadAsDouble(), max, min);
+
+   UseUpId();
+   SpinControl * pSpinCtrl=NULL;
+
+   wxWindow * pWnd  = wxWindow::FindWindowById( miId, mpDlg);
+   pSpinCtrl = dynamic_cast<SpinControl*>(pWnd);
+
+   switch( mShuttleMode )
+   {
+      // IF setting internal storage from the controls.
+   case eIsGettingMetadata:
+      break;
+   case eIsGettingFromDialog:
+      {
+         wxASSERT( pSpinCtrl );
+         WrappedRef.WriteToAsDouble( pSpinCtrl->GetValue() );
+      }
+      break;
+   case eIsSettingToDialog:
+      {
+         wxASSERT( pSpinCtrl );
+         pSpinCtrl->SetValue( WrappedRef.ReadAsDouble() );
+      }
+      break;
+   default:
+      wxASSERT( false );
+      break;
+   }
+   return pSpinCtrl;
+}
+
 wxTextCtrl * ShuttleGuiBase::DoTieTextBox(
    const TranslatableString &Prompt, WrappedType & WrappedRef, const int nChars)
 {
@@ -1405,12 +1469,13 @@ wxTextCtrl * ShuttleGuiBase::DoTieTextBox(
 }
 
 wxTextCtrl * ShuttleGuiBase::DoTieNumericTextBox(
-   const TranslatableString &Prompt, WrappedType & WrappedRef, const int nChars)
+   const TranslatableString& Prompt, WrappedType& WrappedRef, const int nChars,
+   bool acceptEnter)
 {
    HandleOptionality( Prompt );
    // The Add function does a UseUpId(), so don't do it here in that case.
    if( mShuttleMode == eIsCreating )
-      return AddNumericTextBox( Prompt, WrappedRef.ReadAsString(), nChars );
+      return AddNumericTextBox( Prompt, WrappedRef.ReadAsString(), nChars, acceptEnter );
 
    UseUpId();
    wxTextCtrl * pTextBox=NULL;
@@ -1648,6 +1713,14 @@ wxSpinCtrl * ShuttleGuiBase::TieSpinCtrl(
    return DoTieSpinCtrl( Prompt, WrappedRef, max, min );
 }
 
+SpinControl* ShuttleGuiBase::TieSpinControl(
+   const wxSize& size, const TranslatableString& Prompt, double& Value,
+   const double max, const double min)
+{
+   WrappedType WrappedRef(Value);
+   return DoTieSpinControl(size, Prompt, WrappedRef, max, min);
+}
+
 wxTextCtrl * ShuttleGuiBase::TieTextBox(
    const TranslatableString &Prompt, wxString &Selected, const int nChars)
 {
@@ -1669,18 +1742,20 @@ wxTextCtrl * ShuttleGuiBase::TieTextBox(
    return DoTieTextBox( Prompt, WrappedRef, nChars );
 }
 
-wxTextCtrl * ShuttleGuiBase::TieNumericTextBox(
-   const TranslatableString &Prompt, int &Value, const int nChars)
+wxTextCtrl* ShuttleGuiBase::TieNumericTextBox(
+   const TranslatableString& Prompt, int& Value, const int nChars,
+   bool acceptEnter)
 {
-   WrappedType WrappedRef( Value );
-   return DoTieNumericTextBox( Prompt, WrappedRef, nChars );
+   WrappedType WrappedRef(Value);
+   return DoTieNumericTextBox(Prompt, WrappedRef, nChars, acceptEnter);
 }
 
 wxTextCtrl * ShuttleGuiBase::TieNumericTextBox(
-   const TranslatableString &Prompt, double &Value, const int nChars)
+   const TranslatableString& Prompt, double& Value, const int nChars,
+   bool acceptEnter)
 {
    WrappedType WrappedRef( Value );
-   return DoTieNumericTextBox( Prompt, WrappedRef, nChars );
+   return DoTieNumericTextBox( Prompt, WrappedRef, nChars, acceptEnter );
 }
 
 wxSlider * ShuttleGuiBase::TieSlider(
@@ -1949,14 +2024,14 @@ wxTextCtrl * ShuttleGuiBase::TieIntegerTextBox(
 wxTextCtrl * ShuttleGuiBase::TieNumericTextBox(
    const TranslatableString & Prompt,
    const DoubleSetting & Setting,
-   const int nChars)
+   const int nChars, bool acceptEnter)
 {
    wxTextCtrl * pText=(wxTextCtrl*)NULL;
 
    auto Value = Setting.GetDefault();
    WrappedType WrappedRef( Value );
    if( DoStep(1) ) DoDataShuttle( Setting.GetPath(), WrappedRef );
-   if( DoStep(2) ) pText = DoTieNumericTextBox( Prompt, WrappedRef, nChars );
+   if( DoStep(2) ) pText = DoTieNumericTextBox( Prompt, WrappedRef, nChars, acceptEnter );
    if( DoStep(3) ) DoDataShuttle( Setting.GetPath(), WrappedRef );
    return pText;
 }
@@ -2082,7 +2157,7 @@ void ShuttleGuiBase::SetProportions( int Default )
 
 void ShuttleGuiBase::ApplyItem( int step, const DialogDefinition::Item &item,
    wxWindow *pWind, wxWindow *pDlg )
-{  
+{
    if ( step == 0 ) {
       // Do these steps before adding the window to the sizer
       if( item.mUseBestSize )
@@ -2268,7 +2343,7 @@ ShuttleGui & ShuttleGui::Id(int id )
 }
 
 ShuttleGui & ShuttleGui::Optional( bool &bVar ){
-   mpbOptionalFlag = &bVar; 
+   mpbOptionalFlag = &bVar;
    return *this;
 };
 
@@ -2294,7 +2369,7 @@ std::unique_ptr<wxSizer> CreateStdButtonSizer(wxWindow *parent, long buttons, wx
 
    wxButton *b = NULL;
    auto bs = std::make_unique<wxStdDialogButtonSizer>();
-   
+
    const auto makeButton =
    [parent]( wxWindowID id, const wxString label = {} ) {
       auto result = safenew wxButton( parent, id, label );

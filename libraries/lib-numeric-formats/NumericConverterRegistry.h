@@ -35,24 +35,34 @@ public:
 using NumericConverterFormatterFactoryPtr =
    std::unique_ptr<NumericConverterFormatterFactory>;
 
-// NumericConverterRegistryGroupTag is a fake type needed to fix the link on Windows
-struct NumericConverterRegistryGroupTag {};
+struct NumericConverterRegistryItem;
+struct NumericConverterRegistryGroup;
+struct NumericConverterRegistrySuperGroup;
 
-struct NUMERIC_FORMATS_API NumericConverterRegistryGroup :
-    public Registry::GroupItem<NumericConverterRegistryGroupTag>
+struct NumericConverterRegistryTraits : Registry::DefaultTraits{
+   using LeafTypes = List<NumericConverterRegistryItem>;
+   using NodeTypes =
+      List<NumericConverterRegistryGroup, NumericConverterRegistrySuperGroup>;
+};
+
+struct NumericConverterRegistryGroupData {
+   NumericConverterType type;
+   NumericConverterRegistryGroupData(NumericConverterType type)
+      : type{ std::move(type) }
+   {}
+};
+
+struct NUMERIC_FORMATS_API NumericConverterRegistryGroup final
+   : Composite::Extension<
+      Registry::GroupItem<NumericConverterRegistryTraits>,
+      NumericConverterRegistryGroupData,
+      const Identifier &
+   >
 {
-   template <typename... Args>
-   NumericConverterRegistryGroup(
-      const Identifier& internalName, NumericConverterType _type,
-      Args&&... args)
-       : GroupItem { internalName, std::forward<Args>(args)... }
-       , type { std::move(_type) }
-   {
-   }
-
+   using Extension::Extension;
    ~NumericConverterRegistryGroup() override;
 
-   NumericConverterType type;
+   const auto &GetType() const { return type; }
 };
 
 struct NUMERIC_FORMATS_API NumericConverterRegistryItem : public Registry::SingleItem
@@ -76,7 +86,7 @@ struct NUMERIC_FORMATS_API NumericConverterRegistryItem : public Registry::Singl
 
 struct NUMERIC_FORMATS_API NumericConverterRegistry final
 {
-   static Registry::GroupItemBase& Registry();
+   static Registry::GroupItem<NumericConverterRegistryTraits>& Registry();
 
    using Visitor = std::function<void(const NumericConverterRegistryItem&)>;
    
@@ -86,27 +96,25 @@ struct NUMERIC_FORMATS_API NumericConverterRegistry final
 
    static const NumericConverterRegistryItem* Find(
       const FormatterContext& context, const NumericConverterType& type,
-      const NumericFormatSymbol& symbol);
+      const NumericFormatID& symbol);
 };
 
 constexpr auto NumericConverterFormatterItem =
    Callable::UniqueMaker<NumericConverterRegistryItem>();
 
 constexpr auto NumericConverterFormatterGroup =
-   Callable::UniqueMaker<NumericConverterRegistryGroup>();
+   Callable::UniqueMaker<NumericConverterRegistryGroup,
+      const Identifier&, NumericConverterRegistryGroupData>();
 
-struct NUMERIC_FORMATS_API NumericConverterItemRegistrator final :
-    public Registry::RegisteredItem<
-       Registry::BaseItem, NumericConverterRegistry>
-{
-   NumericConverterItemRegistrator(
-      const Registry::Placement& placement, Registry::BaseItemPtr pItem);
+using NumericConverterItemRegistrator =
+   Registry::RegisteredItem<NumericConverterRegistry>;
 
-   NumericConverterItemRegistrator(
-      const wxString& path, Registry::BaseItemPtr pItem)
-       // Delegating constructor
-       : NumericConverterItemRegistrator(
-            Registry::Placement { path }, std::move(pItem))
-   {
-   }
+struct NumericConverterRegistrySuperGroup : Composite::Extension<
+   Registry::GroupItem<NumericConverterRegistryTraits>,
+   void, const Identifier&
+> {
+   using Extension::Extension;
 };
+
+constexpr auto NumericConverterItems =
+   Callable::UniqueMaker<NumericConverterRegistrySuperGroup>();

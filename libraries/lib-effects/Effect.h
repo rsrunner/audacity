@@ -56,7 +56,6 @@ class EFFECTS_API Effect /* not final */
 
    // EffectDefinitionInterface implementation
 
-   EffectType GetType() const override;
    EffectFamilySymbol GetFamily() const override;
    bool IsInteractive() const override;
    bool IsDefault() const override;
@@ -90,7 +89,8 @@ class EFFECTS_API Effect /* not final */
    // EffectPlugin implementation
 
    const EffectSettingsManager& GetDefinition() const override;
-   virtual NumericFormatSymbol GetSelectionFormat() /* not override? */; // time format in Selection toolbar
+   // time format in Selection toolbar
+   virtual NumericFormatID GetSelectionFormat() /* not override? */;
 
    bool SaveSettingsAsString(
       const EffectSettings &settings, wxString & parms) const override;
@@ -107,8 +107,6 @@ class EFFECTS_API Effect /* not final */
    //! Re-invoke DoEffect on another Effect object that implements the work
    bool Delegate(Effect &delegate, EffectSettings &settings,
       InstanceFinder finder = {});
-
-   static void IncEffectCounter(){ nEffectsDone++;}
 
 protected:
 
@@ -142,17 +140,7 @@ protected:
    int GetNumWaveGroups() const { return mNumGroups; }
 
    // Calculates the start time and length in samples for one or two channels
-   void GetBounds(
-      const WaveTrack &track, const WaveTrack *pRight,
-      sampleCount *start, sampleCount *len);
-
-   // Use this method to copy the input tracks to mOutputTracks, if
-   // doing the processing on them, and replacing the originals only on success (and not cancel).
-   // If not all sync-locked selected, then only selected wave tracks.
-   void CopyInputTracks(bool allSyncLockSelected = false);
-
-   // Use this to append a NEW output track.
-   Track *AddToOutputTracks(const std::shared_ptr<Track> &t);
+   void GetBounds(const WaveTrack &track, sampleCount *start, sampleCount *len);
 
 private:
    wxString GetSavedStateGroup();

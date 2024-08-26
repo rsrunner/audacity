@@ -16,6 +16,7 @@
 
 #include "ChangeSpeed.h"
 #include "EffectEditor.h"
+#include "EffectOutputTracks.h"
 #include "LoadEffects.h"
 
 #include <math.h>
@@ -84,7 +85,7 @@ static const double kSliderWarp = 1.30105;      // warp power takes max from 100
 //
 
 const ComponentInterfaceSymbol EffectChangeSpeed::Symbol
-{ XO("Change Speed") };
+{ XO("Change Speed and Pitch") };
 
 namespace{ BuiltinEffectsModule::Registration< EffectChangeSpeed > reg; }
 
@@ -106,7 +107,7 @@ EffectChangeSpeed::EffectChangeSpeed()
    mToVinyl = kVinyl_33AndAThird;
    mFromLength = 0.0;
    mToLength = 0.0;
-   mFormat = NumericConverterFormats::DefaultSelectionFormat();
+   mFormat = NumericConverterFormats::DefaultSelectionFormat().Internal();
    mbLoopDetect = false;
 
    SetLinearEffectFlag(true);
@@ -151,7 +152,7 @@ OptionalMessage
 EffectChangeSpeed::DoLoadFactoryDefaults(EffectSettings &settings)
 {
    mFromVinyl = kVinyl_33AndAThird;
-   mFormat = NumericConverterFormats::DefaultSelectionFormat();
+   mFormat = NumericConverterFormats::DefaultSelectionFormat().Internal();
 
    return Effect::LoadFactoryDefaults(settings);
 }
@@ -177,6 +178,35 @@ bool EffectChangeSpeed::Init()
    return true;
 }
 
+auto EffectChangeSpeed::FindGaps(
+   const WaveTrack &track, const double curT0, const double curT1) -> Gaps
+{
+   // Silenced samples will be inserted in gaps between clips, so capture where
+   // these gaps are for later deletion
+   Gaps gaps;
+   const auto newGap = [&](double st, double et){
+      gaps.emplace_back(track.SnapToSample(st), track.SnapToSample(et));
+   };
+   double last = curT0;
+   auto clips = track.SortedIntervalArray();
+   auto front = clips.front();
+   auto back = clips.back();
+   for (auto &clip : clips) {
+      auto st = clip->GetPlayStartTime();
+      auto et = clip->GetPlayEndTime();
+      if (st >= curT0 || et < curT1) {
+         if (curT0 < st && clip == front)
+            newGap(curT0, st);
+         else if (last < st && curT0 <= last)
+            newGap(last, st);
+         if (et < curT1 && clip == back)
+            newGap(et, curT1);
+      }
+      last = et;
+   }
+   return gaps;
+}
+
 bool EffectChangeSpeed::Process(EffectInstance &, EffectSettings &)
 {
    // Similar to EffectSoundTouch::Process()
@@ -184,55 +214,81 @@ bool EffectChangeSpeed::Process(EffectInstance &, EffectSettings &)
    // Iterate over each track.
    // All needed because this effect needs to introduce
    // silence in the sync-lock group tracks to keep sync
-   CopyInputTracks(true); // Set up mOutputTracks.
+   EffectOutputTracks outputs { *mTracks, GetType(), { { mT0, mT1 } }, true };
    bool bGoodResult = true;
 
    mCurTrackNum = 0;
-   mMaxNewLength = 0.0;
 
    mFactor = 100.0 / (100.0 + m_PercentChange);
 
-   mOutputTracks->Any().VisitWhile( bGoodResult,
-      [&](LabelTrack *lt) {
-         if (SyncLock::IsSelectedOrSyncLockSelected(lt))
-         {
-            if (!ProcessLabelTrack(lt))
+   outputs.Get().Any().VisitWhile(bGoodResult,
+      [&](LabelTrack &lt) {
+         if (SyncLock::IsSelectedOrSyncLockSelected(lt)) {
+            if (!ProcessLabelTrack(&lt))
                bGoodResult = false;
          }
       },
-      [&](WaveTrack *pOutWaveTrack, const Track::Fallthrough &fallthrough) {
-         if (!pOutWaveTrack->GetSelected())
+      [&](auto &&fallthrough){ return [&](WaveTrack &outWaveTrack) {
+         if (!outWaveTrack.GetSelected())
             return fallthrough();
 
          //Get start and end times from track
-         mCurT0 = pOutWaveTrack->GetStartTime();
-         mCurT1 = pOutWaveTrack->GetEndTime();
+         mCurT0 = outWaveTrack.GetStartTime();
+         mCurT1 = outWaveTrack.GetEndTime();
 
          //Set the current bounds to whichever left marker is
          //greater and whichever right marker is less:
-         mCurT0 = wxMax(mT0, mCurT0);
-         mCurT1 = wxMin(mT1, mCurT1);
+         mCurT0 = std::max(mT0, mCurT0);
+         mCurT1 = std::min(mT1, mCurT1);
 
          // Process only if the right marker is to the right of the left marker
          if (mCurT1 > mCurT0) {
             //Transform the marker timepoints to samples
-            auto start = pOutWaveTrack->TimeToLongSamples(mCurT0);
-            auto end = pOutWaveTrack->TimeToLongSamples(mCurT1);
+            auto start = outWaveTrack.TimeToLongSamples(mCurT0);
+            auto end = outWaveTrack.TimeToLongSamples(mCurT1);
 
-            //ProcessOne() (implemented below) processes a single track
-            if (!ProcessOne(pOutWaveTrack, start, end))
+            const auto gaps = FindGaps(outWaveTrack, mCurT0, mCurT1);
+
+            auto pNewTrack = outWaveTrack.EmptyCopy();
+            auto iter = pNewTrack->Channels().begin();
+            for (const auto pChannel : outWaveTrack.Channels()) {
+               // ProcessOne() (implemented below) processes a single channel
+               if (ProcessOne(*pChannel, **iter++, start, end))
+                  ++mCurTrackNum;
+               else {
+                  pNewTrack.reset();
+                  break;
+               }
+            }
+            if (!pNewTrack) {
                bGoodResult = false;
+               return;
+            }
+            pNewTrack->Flush();
+
+            const double newLength = pNewTrack->GetEndTime();
+            const LinearTimeWarper warper{
+               mCurT0, mCurT0, mCurT1, mCurT0 + newLength };
+
+            outWaveTrack.ClearAndPaste(mCurT0, mCurT1,
+               *pNewTrack, true, true, &warper);
+
+               // Finally, recreate the gaps
+            for (const auto [st, et] : gaps)
+               if (st >= mCurT0 && et <= mCurT1 && st != et)
+                  outWaveTrack.SplitDelete(warper.Warp(st), warper.Warp(et));
          }
-         mCurTrackNum++;
-      },
-      [&](Track *t) {
+         else
+            mCurTrackNum += outWaveTrack.NChannels();
+      }; },
+      [&](Track &t) {
          if (SyncLock::IsSyncLockSelected(t))
-            t->SyncLockAdjust(mT1, mT0 + (mT1 - mT0) * mFactor);
+            t.SyncLockAdjust(mT1, mT0 + (mT1 - mT0) * mFactor);
       }
    );
 
    if (bGoodResult)
-      ReplaceProcessedTracks(bGoodResult);
+      outputs.Commit();
 
    // Update selection.
    mT1 = mT0 + (((mT1 - mT0) * 100.0) / (100.0 + m_PercentChange));
@@ -250,10 +306,10 @@ std::unique_ptr<EffectEditor> EffectChangeSpeed::PopulateOrExchange(
       wxString formatId;
       GetConfig(GetDefinition(), PluginSettings::Private,
          CurrentSettingsGroup(),
-         wxT("TimeFormat"), formatId, mFormat.Internal());
+         wxT("TimeFormat"), formatId, mFormat.GET());
       mFormat = NumericConverterFormats::Lookup(
          FormatterContext::SampleRateContext(mProjectRate),
-         NumericConverterType_TIME(), formatId);
+         NumericConverterType_TIME(), formatId).Internal();
    }
    GetConfig(GetDefinition(), PluginSettings::Private,
       CurrentSettingsGroup(),
@@ -263,10 +319,6 @@ std::unique_ptr<EffectEditor> EffectChangeSpeed::PopulateOrExchange(
 
    S.StartVerticalLay(0);
    {
-      S.AddSpace(0, 5);
-      S.AddTitle(XO("Change Speed, affecting both Tempo and Pitch"));
-      S.AddSpace(0, 10);
-
       // Speed multiplier and percent change controls.
       S.StartMultiColumn(4, wxCENTER);
       {
@@ -416,7 +468,7 @@ bool EffectChangeSpeed::TransferDataFromWindow(EffectSettings &)
 
    // TODO: just visit these effect settings the default way
    SetConfig(GetDefinition(), PluginSettings::Private,
-      CurrentSettingsGroup(), wxT("TimeFormat"), mFormat.Internal());
+      CurrentSettingsGroup(), wxT("TimeFormat"), mFormat.GET());
    SetConfig(GetDefinition(), PluginSettings::Private,
       CurrentSettingsGroup(), wxT("VinylChoice"), mFromVinyl);
 
@@ -438,18 +490,10 @@ bool EffectChangeSpeed::ProcessLabelTrack(LabelTrack *lt)
 
 // ProcessOne() takes a track, transforms it to bunch of buffer-blocks,
 // and calls libsamplerate code on these blocks.
-bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
-                           sampleCount start, sampleCount end)
+bool EffectChangeSpeed::ProcessOne(
+   const WaveChannel &track, WaveChannel &outputTrack,
+   sampleCount start, sampleCount end)
 {
-   if (track == NULL)
-      return false;
-
-   // initialization, per examples of Mixer::Mixer and
-   // EffectSoundTouch::ProcessOne
-
-
-   auto outputTrack = track->EmptyCopy();
-
    //Get the length of the selection (as double). len is
    //used simple to calculate a progress meter, so it is easier
    //to make it a double now than it is to do it later
@@ -457,7 +501,7 @@ bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
 
    // Initiate processing buffers, most likely shorter than
    // the length of the selection being processed.
-   auto inBufferSize = track->GetMaxBlockSize();
+   auto inBufferSize = track.GetMaxBlockSize();
 
    Floats inBuffer{ inBufferSize };
 
@@ -475,12 +519,12 @@ bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
    while (samplePos < end) {
       //Get a blockSize of samples (smaller than the size of the buffer)
       auto blockSize = limitSampleBufferSize(
-         track->GetBestBlockSize(samplePos),
+         track.GetBestBlockSize(samplePos),
          end - samplePos
       );
 
       //Get the samples from the track and put them in the buffer
-      track->GetFloats(inBuffer.get(), samplePos, blockSize);
+      track.GetFloats(inBuffer.get(), samplePos, blockSize);
 
       const auto results = resample.Process(mFactor,
                                     inBuffer.get(),
@@ -491,7 +535,7 @@ bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
       const auto outgen = results.second;
 
       if (outgen > 0)
-         outputTrack->Append((samplePtr)outBuffer.get(), floatSample,
+         outputTrack.Append((samplePtr)outBuffer.get(), floatSample,
                              outgen);
 
       // Increment samplePos
@@ -503,59 +547,6 @@ bool EffectChangeSpeed::ProcessOne(WaveTrack * track,
          break;
       }
    }
-
-   // Flush the output WaveTrack (since it's buffered, too)
-   outputTrack->Flush();
-
-   // Take the output track and insert it in place of the original
-   // sample data
-   double newLength = outputTrack->GetEndTime();
-   if (bResult)
-   {
-      // Silenced samples will be inserted in gaps between clips, so capture where these
-      // gaps are for later deletion
-      std::vector<std::pair<double, double>> gaps;
-      double last = mCurT0;
-      auto clips = track->SortedClipArray();
-      auto front = clips.front();
-      auto back = clips.back();
-      for (auto &clip : clips) {
-         auto st = clip->GetPlayStartTime();
-         auto et = clip->GetPlayEndTime();
-
-         if (st >= mCurT0 || et < mCurT1) {
-            if (mCurT0 < st && clip == front) {
-               gaps.push_back(std::make_pair(mCurT0, st));
-            }
-            else if (last < st && mCurT0 <= last ) {
-               gaps.push_back(std::make_pair(last, st));
-            }
-
-            if (et < mCurT1 && clip == back) {
-               gaps.push_back(std::make_pair(et, mCurT1));
-            }
-         }
-         last = et;
-      }
-
-      LinearTimeWarper warper { mCurT0, mCurT0, mCurT1, mCurT0 + newLength };
-
-      // Take the output track and insert it in place of the original sample data
-      track->ClearAndPaste(mCurT0, mCurT1, outputTrack.get(), true, true, &warper);
-
-      // Finally, recreate the gaps
-      for (auto gap : gaps) {
-         auto st = track->LongSamplesToTime(track->TimeToLongSamples(gap.first));
-         auto et = track->LongSamplesToTime(track->TimeToLongSamples(gap.second));
-         if (st >= mCurT0 && et <= mCurT1 && st != et)
-         {
-            track->SplitDelete(warper.Warp(st), warper.Warp(et));
-         }
-      }
-   }
-
-   if (newLength > mMaxNewLength)
-      mMaxNewLength = newLength;
 
    return bResult;
 }
@@ -680,7 +671,7 @@ void EffectChangeSpeed::OnTimeCtrlUpdate(wxCommandEvent & evt)
 {
    mFormat = NumericConverterFormats::Lookup(
       FormatterContext::SampleRateContext(mProjectRate),
-      NumericConverterType_TIME(), evt.GetString());
+      NumericConverterType_TIME(), evt.GetString()).Internal();
 
    mpFromLengthCtrl->SetFormatName(mFormat);
    // Update From/To Length controls (precision has changed).

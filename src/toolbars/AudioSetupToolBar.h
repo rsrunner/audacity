@@ -7,16 +7,15 @@
   K. Soze
 
   **********************************************************************/
-
 #ifndef __AUDACITY_AUDIO_SETUP_TOOLBAR__
 #define __AUDACITY_AUDIO_SETUP_TOOLBAR__
 
 #include <optional>
 #include <vector>
 #include <wx/menu.h>
+#include "IteratorX.h"
 #include "ToolBar.h"
 #include "Observer.h"
-#include "MemoryX.h"
 
 enum class DeviceChangeMessage : char;
 
@@ -26,6 +25,7 @@ struct DeviceSourceMap;
 
 class AudioSetupToolBar final : public ToolBar {
    static constexpr int kAudioSettings = 15800;
+   static constexpr int kAudioDeviceRescan = 15801;
 
  public:
    static Identifier ID();
@@ -55,6 +55,7 @@ class AudioSetupToolBar final : public ToolBar {
    void OnInput(int id);
    void OnChannels(int id);
    void OnOutput(int id);
+   void OnAudioDeviceRescan(wxCommandEvent&);
    void OnSettings(wxCommandEvent& event);
    void CommonMenuItemSteps(bool audioSettingsChosen);
 
@@ -86,7 +87,6 @@ class AudioSetupToolBar final : public ToolBar {
    };
 
    AButton *mAudioSetup{};
-   wxBoxSizer *mSizer{};
 
    class Choices {
    public:

@@ -7,20 +7,15 @@
  Paul Licameli split from TrackPanel.cpp
 
  **********************************************************************/
-
-
 #include "NoteTrackSliderHandles.h"
-
-#ifdef EXPERIMENTAL_MIDI_OUT
 
 #include "NoteTrackControls.h"
 #include "ProjectHistory.h"
 #include "../../../../RefreshCode.h"
-#include "../../../../TrackInfo.h"
+#include "../../../ui/CommonTrackInfo.h"
 #include "../../../../TrackPanel.h"
-#include "../../../../TrackPanelAx.h"
 #include "UndoManager.h"
-#include "../../../../NoteTrack.h"
+#include "NoteTrack.h"
 #include "ViewInfo.h"
 
 VelocitySliderHandle::VelocitySliderHandle
@@ -101,8 +96,8 @@ UIHandlePtr VelocitySliderHandle::HitTest
       return {};
 
    wxRect sliderRect;
-   NoteTrackControls::GetVelocityRect(rect.GetTopLeft(), sliderRect);
-   if ( TrackInfo::HideTopItem( rect, sliderRect, kTrackInfoSliderAllowance ) )
+   NoteTrackControls::GetVelocityRect(rect, sliderRect);
+   if (CommonTrackInfo::HideTopItem( rect, sliderRect, kTrackInfoSliderAllowance))
       return {};
    if (sliderRect.Contains(state.m_x, state.m_y)) {
       auto sliderFn =
@@ -120,5 +115,3 @@ UIHandlePtr VelocitySliderHandle::HitTest
    else
       return {};
 }
-
-#endif

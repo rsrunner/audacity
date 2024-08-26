@@ -50,8 +50,8 @@
 #include "ImageManipulation.h"
 #include "Project.h"
 #include "../ProjectSettings.h"
-#include "../ProjectWindow.h"
 #include "../tracks/ui/Scrubbing.h"
+#include "Viewport.h"
 
 #include "../widgets/AButton.h"
 
@@ -68,6 +68,33 @@ BEGIN_EVENT_TABLE(ToolsToolBar, ToolBar)
                      wxEVT_COMMAND_BUTTON_CLICKED,
                      ToolsToolBar::OnTool)
 END_EVENT_TABLE()
+
+namespace
+{
+
+AButton* MakeToolsToolBarButton(wxWindow* parent,
+                                wxWindowID id,
+                                const TranslatableString& label,
+                                const wxImage& toolIcon)
+{
+   auto button = safenew AButton(parent, FirstToolID + id);
+   button->SetButtonType(AButton::FrameButton);
+   button->SetButtonToggles(true);
+   button->SetImages(
+      theTheme.Image(bmpRecoloredUpSmall),
+      theTheme.Image(bmpRecoloredUpHiliteSmall),
+      theTheme.Image(bmpRecoloredDownSmall),
+      theTheme.Image(bmpRecoloredHiliteSmall),
+      theTheme.Image(bmpRecoloredUpSmall));
+   button->SetIcon(toolIcon);
+   button->SetFrameMid(3);
+   button->SetLabel(label);
+   button->SetMinSize(wxSize { 25, 25 });
+   button->SetMaxSize(wxSize { 25, 25 });
+   return button;
+}
+
+}
 
 Identifier ToolsToolBar::ID()
 {
@@ -93,8 +120,8 @@ ToolsToolBar::ToolsToolBar( AudacityProject &project )
    else
       mCurrentTool = selectTool;
 
-   project.Bind(EVT_PROJECT_SETTINGS_CHANGE,
-      &ToolsToolBar::OnToolChanged, this);
+   mSubscription = ProjectSettings::Get(project)
+      .Subscribe(*this, &ToolsToolBar::OnToolChanged);
 }
 
 ToolsToolBar::~ToolsToolBar()
@@ -172,38 +199,32 @@ void ToolsToolBar::UpdatePrefs()
    ToolBar::UpdatePrefs();
 }
 
-AButton * ToolsToolBar::MakeTool(
-   ToolsToolBar *pBar, teBmps eTool,
-   int id, const TranslatableString &label)
-{
-   AButton *button = ToolBar::MakeButton(pBar,
-      bmpRecoloredUpSmall, 
-      bmpRecoloredDownSmall, 
-      bmpRecoloredUpHiliteSmall, 
-      bmpRecoloredDownSmall, // Not bmpRecoloredHiliteSmall as down is inactive.
-      eTool, eTool, eTool,
-      wxWindowID(id + FirstToolID),
-      wxDefaultPosition, true,
-      theTheme.ImageSize( bmpRecoloredUpSmall ));
-   button->SetLabel( label );
-   pBar->mToolSizer->Add( button );
-   return button;
-}
-
-
 void ToolsToolBar::Populate()
 {
    SetBackgroundColour( theTheme.Colour( clrMedium  ) );
    MakeButtonBackgroundsSmall();
 
-   Add(mToolSizer = safenew wxGridSizer(2, 2, 1, 1));
+   Add(mToolSizer = safenew wxGridSizer(2, 2, toolbarSpacing, toolbarSpacing),
+      0, wxALIGN_CENTRE | wxALL, toolbarSpacing);
 
    /* Tools */
    using namespace ToolCodes;
-   mTool[ selectTool   ] = MakeTool( this, bmpIBeam, selectTool, XO("Selection Tool") );
-   mTool[ envelopeTool ] = MakeTool( this, bmpEnvelope, envelopeTool, XO("Envelope Tool") );
-   mTool[ drawTool     ] = MakeTool( this, bmpDraw, drawTool, XO("Draw Tool") );
-   mTool[ multiTool    ] = MakeTool( this, bmpMulti, multiTool, XO("Multi-Tool") );
+   mTool[ selectTool   ] =
+      MakeToolsToolBarButton(this, selectTool, XO("Selection Tool"), theTheme.Image(bmpIBeam));
+      //MakeTool( this, bmpIBeam, selectTool, XO("Selection Tool") );
+   mTool[ envelopeTool ] =
+      MakeToolsToolBarButton(this, envelopeTool, XO("Envelope Tool"), theTheme.Image(bmpEnvelope));
+      //MakeTool( this, bmpEnvelope, envelopeTool, XO("Envelope Tool") );
+   mTool[ drawTool     ] =
+      MakeToolsToolBarButton(this, drawTool, XO("Draw Tool"), theTheme.Image(bmpDraw));
+      //MakeTool( this, bmpDraw, drawTool, XO("Draw Tool") );
+   mTool[ multiTool    ] =
+      MakeToolsToolBarButton(this, multiTool, XO("Multi-Tool"), theTheme.Image(bmpMulti));
+      //MakeTool( this, bmpMulti, multiTool, XO("Multi-Tool") );
+   mToolSizer->Add(mTool[selectTool]);
+   mToolSizer->Add(mTool[envelopeTool]);
+   mToolSizer->Add(mTool[drawTool]);
+   mToolSizer->Add(mTool[multiTool]);
 
    DoToolChanged();
 
@@ -222,13 +243,12 @@ void ToolsToolBar::OnTool(wxCommandEvent & evt)
       pButton->PushDown();
 }
 
-void ToolsToolBar::OnToolChanged(wxCommandEvent &evt)
+void ToolsToolBar::OnToolChanged(ProjectSettingsEvent evt)
 {
-   evt.Skip(); // Let other listeners hear the event too
-   if (evt.GetInt() != ProjectSettings::ChangedTool)
+   if (evt.type != ProjectSettingsEvent::ChangedTool)
       return;
    DoToolChanged();
-   ProjectWindow::Get( mProject ).RedrawProject();
+   Viewport::Get(mProject).Redraw();
 }
 
 void ToolsToolBar::DoToolChanged()
@@ -333,10 +353,10 @@ void OnNextTool(const CommandContext &context)
    trackPanel.Refresh(false);
 }
 
-using namespace MenuTable;
-BaseItemSharedPtr ExtraToolsMenu()
+using namespace MenuRegistry;
+auto ExtraToolsMenu()
 {
-   static BaseItemSharedPtr menu{
+   static auto menu = std::shared_ptr{
    Menu( wxT("Tools"), XXO("T&ools"),
       Command( wxT("SelectTool"), XXO("&Selection Tool"), OnSelectTool,
          AlwaysEnabledFlag, wxT("F1") ),
@@ -354,8 +374,7 @@ BaseItemSharedPtr ExtraToolsMenu()
    return menu;
 }
 
-AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part1"),
-   Indirect(ExtraToolsMenu())
+AttachedItem sAttachment2{ Indirect(ExtraToolsMenu()),
+   wxT("Optional/Extra/Part1")
 };
 }

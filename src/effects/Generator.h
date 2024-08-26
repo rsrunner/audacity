@@ -4,10 +4,7 @@
 
   Generator.h
 
-  Two Abstract classes, Generator, and BlockGenerator, that effects which
-  generate audio should derive from.
-
-  Block Generator breaks the synthesis task up into smaller parts.
+  Effects that generate audio can derive from Generator.
 
   Dominic Mazzoni
   Vaughan Johnson
@@ -19,30 +16,27 @@
 #define __AUDACITY_GENERATOR__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "SampleCount.h"
 
+class TrackList;
+
 // Base class for Generators (effects which fill a given duration)
-class Generator /* not final */ : public StatefulEffect
+class Generator /* not final */ :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    Generator() { }
 
 protected:
-   // [ GenerateTrack() must be overridden by the actual generator class ]
-   // Precondition:  mDuration > 0.0
-   // Postcondition: <tmp> is filled with the data intended for <track>
-   virtual bool GenerateTrack(EffectSettings &settings,
-      WaveTrack *tmp, const WaveTrack &track, int ntrack) = 0;
-
-   // Actions to perform at the respective points in the generation process
-   // NEW virtuals
-   virtual void BeforeGenerate() { };
-   virtual void BeforeTrack(const WaveTrack & WXUNUSED(track)) { };
-
-   // Actions to perform upon respective outcomes
-   // (For example, Success might save the parameters that were used.)
-   virtual void Success() { };
-   virtual void Failure() {};
+   //! GenerateTrack() must be overridden by the actual generator class
+   /*!
+    @pre `mDuration > 0.0`
+    @post `tmp` is filled with data
+    */
+   virtual bool GenerateTrack(const EffectSettings &settings, WaveTrack &tmp)
+      = 0;
 
    // Precondition:
    // mDuration is set to the amount of time to generate in seconds
@@ -50,25 +44,6 @@ protected:
    // If mDuration was valid (>= 0), then the tracks are replaced by the
    // generated results and true is returned. Otherwise, return false.
    AUDACITY_DLL_API bool Process(EffectInstance &instance, EffectSettings &settings) override;
-};
-
-// Abstract generator which creates the sound in discrete blocks, whilst
-// showing a progress bar
-class BlockGenerator /* not final */ : public Generator {
-public:
-   BlockGenerator() { }
-protected:
-   // Number of samples to generate
-   sampleCount numSamples;
-
-   // Postcondition: data[0..block) filled with generated samples
-   virtual void GenerateBlock(float *data,
-                              const WaveTrack &track,
-                              size_t block) = 0;
-
-   // Generate the track, one block at a time, & adding the results to tmp
-   bool GenerateTrack(EffectSettings &settings,
-      WaveTrack *tmp, const WaveTrack &track, int ntrack) override;
 };
 
 #endif

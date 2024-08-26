@@ -33,6 +33,7 @@ struct AudioIOEvent;
 
 class AudacityCommand;
 class AudacityProject;
+class EffectBase;
 class RealtimeEffectState;
 
 class wxCheckBox;
@@ -50,7 +51,7 @@ public:
     (and then must call Init() with success), or leave null for failure
     */
    EffectUIHost(wxWindow *parent, AudacityProject &project,
-      EffectPlugin &effect, EffectUIServices &client,
+      EffectBase &effect, EffectUIServices &client,
       std::shared_ptr<EffectInstance> &pInstance,
       EffectSettingsAccess &access,
       const std::shared_ptr<RealtimeEffectState> &pPriorState = {});
@@ -75,8 +76,7 @@ public:
 private:
    std::shared_ptr<EffectInstance> InitializeInstance();
 
-   wxPanel *BuildButtonBar(wxWindow *parent, bool graphicalUI);
-   void BuildButtonBar(ShuttleGui &S, bool graphicalUI);
+   void BuildTopBar(ShuttleGui &S);
 
    void OnInitDialog(wxInitDialogEvent & evt);
    void OnErase(wxEraseEvent & evt);
@@ -115,7 +115,7 @@ private:
 
    AudacityProject &mProject;
    wxWindow *const mParent;
-   EffectPlugin &mEffectUIHost;
+   EffectBase &mEffectUIHost;
    EffectUIServices &mClient;
    //! @invariant not null
    const EffectPlugin::EffectSettingsAccessPtr mpGivenAccess;
@@ -135,7 +135,6 @@ private:
    wxButton *mMenuBtn{};
    AButton *mEnableBtn{};
    wxButton *mDebugBtn{};
-   wxButton *mPlayToggleBtn{};
 
    bool mEnabled{ true };
 
@@ -165,16 +164,8 @@ class CommandContext;
 namespace  EffectUI {
 
    AUDACITY_DLL_API
-   DialogFactoryResults DialogFactory(wxWindow &parent, EffectPlugin &host,
+   DialogFactoryResults DialogFactory(wxWindow &parent, EffectBase &host,
       EffectUIServices &client, EffectSettingsAccess &access);
-
-   /** Run an effect given the plugin ID */
-   // Returns true on success.  Will only operate on tracks that
-   // have the "selected" flag set to true, which is consistent with
-   // Audacity's standard UI.
-   AUDACITY_DLL_API bool DoEffect(
-      const PluginID & ID, const CommandContext &context, unsigned flags );
-
 }
 
 class ShuttleGui;

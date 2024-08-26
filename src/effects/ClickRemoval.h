@@ -17,6 +17,7 @@
 #define __AUDACITY_EFFECT_CLICK_REMOVAL__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "ShuttleAutomation.h"
 #include <wx/weakref.h>
 
@@ -24,8 +25,11 @@ class wxSlider;
 class wxTextCtrl;
 class Envelope;
 class ShuttleGui;
+class WaveChannel;
 
-class EffectClickRemoval final : public StatefulEffect
+class EffectClickRemoval final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EffectClickRemoval *
@@ -56,8 +60,8 @@ public:
    bool TransferDataFromWindow(EffectSettings &settings) override;
 
 private:
-   bool ProcessOne(int count, WaveTrack * track,
-                   sampleCount start, sampleCount len);
+   bool ProcessOne(int count, WaveChannel &track,
+      sampleCount start, sampleCount len);
 
    bool RemoveClicks(size_t len, float *buffer);
 

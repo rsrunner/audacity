@@ -1,6 +1,6 @@
 #include "MenuHelper.h"
 #include "PluginManager.h"
-#include "effects/EffectManager.h"
+#include "EffectManager.h"
 #include "CommonCommandFlags.h"
 #include "BatchCommands.h"
 #include "BatchProcessDialog.h"
@@ -17,7 +17,7 @@ struct MenuSectionBuilder
 
    std::function<bool(const PluginDescriptor*)> filter;
    std::function<bool(const PluginDescriptor*, const PluginDescriptor*)> compare;
-   std::function<void(MenuTable::BaseItemPtrs&, std::vector<const PluginDescriptor*>&)> add;
+   std::function<void(MenuHelper::Group&, std::vector<const PluginDescriptor*>&)> add;
 };
 
 enum class GroupBy
@@ -130,7 +130,7 @@ CommandFlag FixBatchFlags(CommandFlag batchflags, const PluginDescriptor* plug)
 
 
 void AddEffectMenuItemGroup(
-   MenuTable::BaseItemPtrs &table,
+   MenuHelper::Group &table,
    const TranslatableStrings & names,
    const PluginIDs & plugs,
    const std::vector<CommandFlag> & flags,
@@ -149,7 +149,7 @@ void AddEffectMenuItemGroup(
       }
    }
 
-   using namespace MenuTable;
+   using namespace MenuRegistry;
    
    for (int i = 0; i < namesCnt; i++)
    {
@@ -159,25 +159,25 @@ void AddEffectMenuItemGroup(
          // collect a sub-menu for like-named items
          const auto name = names[i];
          const auto translation = name.Translation();
-         BaseItemPtrs submenu;
+         auto subMenu = Menu("", name);
          // compare full translations not msgids!
          while (i < namesCnt && names[i].Translation() == translation)
          {
             const PluginDescriptor *plug =
                PluginManager::Get().GetPlugin(plugs[i]);
             if( plug->GetPluginType() == PluginTypeEffect )
-               submenu.push_back( Command( plug->GetID(),
+               subMenu->push_back( Command( plug->GetID(),
                   Verbatim( plug->GetPath() ),
                   onMenuCommand,
                   flags[i],
-                  CommandManager::Options{}
+                  Options{}
                      .IsEffect()
                      .AllowInMacros()
                      .Parameter( plugs[i] ) ) );
 
             i++;
          }
-         table.push_back( Menu( wxEmptyString, name, std::move( submenu ) ) );
+         table.push_back(move(subMenu));
          i--;
       }
       else
@@ -191,7 +191,7 @@ void AddEffectMenuItemGroup(
                names[i],
                onMenuCommand,
                flags[i],
-               CommandManager::Options{}
+               Options{}
                   .IsEffect()
                   .AllowInMacros()
                   .Parameter( plugs[i] ) ) );
@@ -200,7 +200,7 @@ void AddEffectMenuItemGroup(
 }
 
 void AddSortedEffectMenuItems(
-   MenuTable::BaseItemPtrs &table,
+   MenuHelper::Group &table,
    std::vector<const PluginDescriptor*> & plugs,
    CommandFlag batchflags,
    SortBy sortBy,
@@ -254,23 +254,12 @@ void AddSortedEffectMenuItems(
    }
 }
 
-static Registry::BaseItemPtr MenuOrItems(
-   const Identifier &id, const TranslatableString &label,
-   Registry::BaseItemPtrs ptrs)
-{
-   using namespace MenuTable;
-   if (label.empty())
-      return Items(id, move(ptrs));
-   else
-      return Menu(id, label, move(ptrs));
-}
-
 auto MakeAddGroupItems(
    const EffectsMenuGroups& list,
    CommandFlag batchflags,
    void (*onMenuCommand)(const CommandContext&)) -> auto
 {
-   return [=](MenuTable::BaseItemPtrs& items, std::vector<const PluginDescriptor*>& plugs)
+   return [=](MenuHelper::Group& items, std::vector<const PluginDescriptor*>& plugs)
    {
       for(auto& p : list)
       {
@@ -302,50 +291,63 @@ auto MakeAddGroupItems(
 
          if (!groupNames.empty())
          {
-            using namespace MenuTable;
-            BaseItemPtrs temp;
-
-            AddEffectMenuItemGroup(temp,
-               groupNames, groupPlugs, groupFlags,
-               onMenuCommand);
-
-            items.push_back( MenuOrItems( wxEmptyString,
-               p.first, std::move( temp )
-            ) );
+            using namespace MenuRegistry;
+            if (p.first.empty()) {
+               auto temp = Items("");
+               AddEffectMenuItemGroup(*temp,
+                  groupNames, groupPlugs, groupFlags,
+                  onMenuCommand);
+               items.push_back(move(temp));
+            }
+            else {
+               auto temp = Menu("", p.first);
+               AddEffectMenuItemGroup(*temp,
+                  groupNames, groupPlugs, groupFlags,
+                  onMenuCommand);
+               items.push_back(move(temp));
+            }
          }
       }
    };
 }
 
 void AddGroupedEffectMenuItems(
-   MenuTable::BaseItemPtrs& table,
+   MenuHelper::Group& table,
    std::vector<const PluginDescriptor*>& plugs,
    CommandFlag batchflags,
    GroupBy groupBy,
    void (*onMenuCommand)(const CommandContext&))
 {
-   using namespace MenuTable;
+   using namespace MenuRegistry;
 
    const auto UnknownGroupName = XO("Unknown");
    auto& effectManager = EffectManager::Get();
 
    std::vector<TranslatableString> path;
 
-   BaseItemPtrs* parentTable = &table;
+   auto *parentTable = &table;
    std::vector<TranslatableString> names;
    PluginIDs group;
    std::vector<CommandFlag> flags;
 
    auto doAddGroup = [&]
    {
+      using namespace MenuRegistry;
       if(names.empty())
          return;
 
       const auto inSubmenu = !path.empty() && (names.size() > 1);
-      BaseItemPtrs items;
-      AddEffectMenuItemGroup(items, names, group, flags, onMenuCommand);
-      parentTable->push_back( MenuOrItems( wxEmptyString,
-            inSubmenu ? path.back() : TranslatableString{}, std::move( items )));
+      const auto label = inSubmenu ? path.back() : TranslatableString{};
+      if (label.empty()) {
+         auto items = Items("");
+         AddEffectMenuItemGroup(*items, names, group, flags, onMenuCommand);
+         parentTable->push_back(move(items));
+      }
+      else {
+         auto items = Menu("", label);
+         AddEffectMenuItemGroup(*items, names, group, flags, onMenuCommand);
+         parentTable->push_back(move(items));
+      }
 
       names.clear();
       group.clear();
@@ -380,9 +382,9 @@ void AddGroupedEffectMenuItems(
          {
             doAddGroup();
             path = { effectFamilyName, vendorName };
-            auto menu = Menu("", effectFamilyName, BaseItemPtrs{});
-            parentTable = &menu->items;
-            table.push_back(std::move(menu));
+            auto menu = Menu("", effectFamilyName);
+            parentTable = menu.get();
+            table.push_back(move(menu));
          }
          else if(path[1] != vendorName)
          {
@@ -522,15 +524,7 @@ bool IsEnabledPlugin(const PluginDescriptor* plug)
 
 bool IsDefaultPlugin(const PluginDescriptor* plug)
 {
-   if (plug->IsEffectDefault()
-#ifdef EXPERIMENTAL_DA
-      // Move Nyquist prompt into nyquist group.
-      && (plug->GetSymbol() !=
-            ComponentInterfaceSymbol("Nyquist Effects Prompt"))
-      && (plug->GetSymbol() != ComponentInterfaceSymbol("Nyquist Tools Prompt"))
-      && (plug->GetSymbol() != ComponentInterfaceSymbol(NYQUIST_PROMPT_ID))
-#endif
-      )
+   if (plug->IsEffectDefault())
       return true;
    return false;
 }
@@ -566,21 +560,21 @@ auto MakeGroupsFilter(const EffectsMenuGroups& list) -> auto
 
 }
 
-MenuTable::BaseItemPtrs MenuHelper::PopulateEffectsMenu(
+void MenuHelper::PopulateEffectsMenu(
+   Group &menuItems,
    EffectType type,
    CommandFlag batchflags,
    const wxString& groupby,
    void (*onMenuCommand)(const CommandContext&),
    std::function<bool(const PluginDescriptor&)> pred)
 {
-   MenuTable::BaseItemPtrs result;
    PluginManager & pm = PluginManager::Get();
 
    std::vector<MenuSectionBuilder> sections;
    
    auto MakeAddSortedItems = [=](SortBy sortby)
    {
-      return [=](MenuTable::BaseItemPtrs& items, std::vector<const PluginDescriptor*>& plugins)
+      return [=](Group& items, std::vector<const PluginDescriptor*>& plugins)
       {
          return AddSortedEffectMenuItems(items, plugins, batchflags, sortby, onMenuCommand);
       };
@@ -588,7 +582,7 @@ MenuTable::BaseItemPtrs MenuHelper::PopulateEffectsMenu(
 
    auto MakeAddGroupedItems = [=](GroupBy groupBy)
    {
-      return [=](MenuTable::BaseItemPtrs& items, std::vector<const PluginDescriptor*>& plugins)
+      return [=](Group& items, std::vector<const PluginDescriptor*>& plugins)
       {
          return AddGroupedEffectMenuItems(items, plugins, batchflags, groupBy, onMenuCommand);
       };
@@ -760,17 +754,19 @@ MenuTable::BaseItemPtrs MenuHelper::PopulateEffectsMenu(
       if(section.compare != nullptr)
          std::sort(section.plugins.begin(), section.plugins.end(), section.compare);
 
-      MenuTable::BaseItemPtrs items;
-      section.add(items, section.plugins);
-
-      if(items.empty())
-         continue;
-
-      if(result.empty())
-         result.push_back(MenuTable::Items( "", std::move( items ) ));
-      else
-         result.push_back(MenuTable::Section( "", std::move( items ) ));
+      if (menuItems.empty()) {
+         auto group = MenuRegistry::Items("");
+         section.add(*group, section.plugins);
+         if (group->empty())
+            continue;
+         menuItems.push_back(move(group));
+      }
+      else {
+         auto group = MenuRegistry::Section("");
+         section.add(*group, section.plugins);
+         if (group->empty())
+            continue;
+         menuItems.push_back(move(group));
+      }
    }
-   
-   return result;
 }

@@ -19,6 +19,7 @@
 class Effect;
 class LabelTrack;
 class Track;
+class TrackList;
 
 // For the use of analyzers, which don't need to make output wave tracks,
 // but may need to add label tracks.
@@ -55,8 +56,8 @@ class AUDACITY_DLL_API ModifiedAnalysisTrack {
    ModifiedAnalysisTrack(const ModifiedAnalysisTrack&) = delete;
 
 public:
-   ModifiedAnalysisTrack
-      (Effect *pEffect, const LabelTrack *pOrigTrack, const wxString &name);
+   ModifiedAnalysisTrack(
+      Effect *pEffect, const LabelTrack &origTrack, const wxString &name);
    ModifiedAnalysisTrack();
 
    // So you can have a vector of them
@@ -78,6 +79,6 @@ private:
 
 // Set name to given value if that is not empty, else use default name
 ModifiedAnalysisTrack ModifyAnalysisTrack(Effect &effect,
-   const LabelTrack *pOrigTrack, const wxString &name = wxString());
+   const LabelTrack &origTrack, const wxString &name = wxString());
 
 #endif

@@ -47,7 +47,7 @@
 
 #ifdef EXPERIMENTAL_VOICE_DETECTION
 #include "../VoiceKey.h"
-#include "../ProjectWindow.h"
+
 #endif
 
 IMPLEMENT_CLASS(TranscriptionToolBar, ToolBar);
@@ -100,7 +100,7 @@ Identifier TranscriptionToolBar::ID()
 TranscriptionToolBar::TranscriptionToolBar( AudacityProject &project )
 : ToolBar( project, XO("Play-at-Speed"), ID(), true )
 {
-   SetPlaySpeed( 1.0 * 100.0 );
+   SetPlaySpeed( 1.0 * 1000.0 );
 #ifdef EXPERIMENTAL_VOICE_DETECTION
    mVk = std::make_unique<VoiceKey>();
 #endif
@@ -112,13 +112,7 @@ TranscriptionToolBar::~TranscriptionToolBar()
 
 bool TranscriptionToolBar::ShownByDefault() const
 {
-   return
-#ifdef EXPERIMENTAL_DA
-      false
-#else
-      true
-#endif
-   ;
+   return true;
 }
 
 ToolBar::DockID TranscriptionToolBar::DefaultDockID() const
@@ -164,7 +158,7 @@ void TranscriptionToolBar::Create(wxWindow * parent)
    //JKC: Set speed this way is better, as we don't
    //then stop Audio if it is playing, so we can be playing
    //audio and open a second project.
-   SetPlaySpeed( (mPlaySpeedSlider->Get()) * 100 );
+   SetPlaySpeed( (mPlaySpeedSlider->Get()) * 1000 );
 
    // Simulate a size event to set initial placement/size
    wxSizeEvent event(GetSize(), GetId());
@@ -240,11 +234,11 @@ void TranscriptionToolBar::Populate()
       ASlider::Options{}
          .Style( SPEED_SLIDER )
          //  6 steps using page up/down, and 60 using arrow keys
-         .Line( 0.16667f )
-         .Page( 1.6667f )
+         .Line( 0.16722f )
+         .Page( 1.6722f )
    );
    mPlaySpeedSlider->SetSizeHints(wxSize(100, 25), wxSize(2000, 25));
-   mPlaySpeedSlider->Set(mPlaySpeed / 100.0);
+   mPlaySpeedSlider->Set(mPlaySpeed / 1000.0);
    mPlaySpeedSlider->SetLabel(_("Playback Speed"));
    Add( mPlaySpeedSlider, 1, wxALIGN_CENTER );
    mPlaySpeedSlider->Bind(wxEVT_SET_FOCUS,
@@ -323,8 +317,8 @@ void TranscriptionToolBar::EnableDisableButtons()
    bool recording = gAudioIO->GetNumCaptureChannels() > 0;
 
    // Only interested in audio type tracks
-   bool tracks = p && TrackList::Get( *p ).Any<AudioTrack>(); // PRL:  PlayableTrack ?
-   SetEnabled( canStopAudioStream && tracks && !recording );
+   bool tracks = p && TrackList::Get(*p).Any<AudioTrack>(); // PRL:  PlayableTrack ?
+   SetEnabled(canStopAudioStream && tracks && !recording);
 
 #ifdef EXPERIMENTAL_VOICE_DETECTION
    if (!p)
@@ -464,10 +458,10 @@ void TranscriptionToolBar::GetSamples(
    double start = selectedRegion.t0();
    double end = selectedRegion.t1();
 
-   auto ss0 = sampleCount( (start - t->GetOffset()) * t->GetRate() );
-   auto ss1 = sampleCount( (end - t->GetOffset()) * t->GetRate() );
+   auto ss0 = sampleCount( (start - t->GetStartTime()) * t->GetRate() );
+   auto ss1 = sampleCount( (end - t->GetStartTime()) * t->GetRate() );
 
-   if (start < t->GetOffset()) {
+   if (start < t->GetStartTime()) {
       ss0 = 0;
    }
 
@@ -506,7 +500,7 @@ void TranscriptionToolBar::PlayAtSpeed(bool newDefault, bool cutPreview)
    // VariSpeed play reuses Scrubbing.
    bool bFixedSpeedPlay = !gPrefs->ReadBool(wxT("/AudioIO/VariSpeedPlay"), true);
    // Scrubbing doesn't support note tracks, but the fixed-speed method using time tracks does.
-   if ( TrackList::Get( *p ).Any< NoteTrack >() )
+   if (TrackList::Get(*p).Any<NoteTrack>())
       bFixedSpeedPlay = true;
 
    // If cutPreview, we have to fall back to fixed speed.
@@ -527,7 +521,7 @@ void TranscriptionToolBar::PlayAtSpeed(bool newDefault, bool cutPreview)
       // Set the speed range
       //mTimeTrack->SetRangeUpper((double)mPlaySpeed / 100.0);
       //mTimeTrack->SetRangeLower((double)mPlaySpeed / 100.0);
-      mEnvelope->Flatten((double)mPlaySpeed / 100.0);
+      mEnvelope->Flatten((double)mPlaySpeed / 1000.0);
    }
 
    // Pop up the button
@@ -577,7 +571,7 @@ void TranscriptionToolBar::OnPlaySpeed(wxCommandEvent & event)
 
 void TranscriptionToolBar::OnSpeedSlider(wxCommandEvent& WXUNUSED(event))
 {
-   SetPlaySpeed( (mPlaySpeedSlider->Get()) * 100 );
+   SetPlaySpeed( (mPlaySpeedSlider->Get()) * 1000 );
    RegenerateTooltips();
 
    // If IO is busy, abort immediately
@@ -616,7 +610,7 @@ void TranscriptionToolBar::OnStartOn(wxCommandEvent & WXUNUSED(event))
 
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setT0( newpos );
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
       SetButton(false, mButtons[TTB_StartOn]);
    }
@@ -649,7 +643,7 @@ void TranscriptionToolBar::OnStartOff(wxCommandEvent & WXUNUSED(event))
 
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setT0( newpos );
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
       SetButton(false, mButtons[TTB_StartOn]);
    }
@@ -684,7 +678,7 @@ void TranscriptionToolBar::OnEndOn(wxCommandEvent & WXUNUSED(event))
 
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setT1( newpos );
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
       SetButton(false, mButtons[TTB_EndOn]);
    }
@@ -720,7 +714,7 @@ void TranscriptionToolBar::OnEndOff(wxCommandEvent & WXUNUSED(event))
 
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setT1( newpos );
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
       SetButton(false, mButtons[TTB_EndOff]);
    }
@@ -742,7 +736,7 @@ void TranscriptionToolBar::OnSelectSound(wxCommandEvent & WXUNUSED(event))
    mVk->AdjustThreshold(GetSensitivity());
 
 
-   TrackList *tl = &TrackList::Get( mProject );
+   TrackList *tl = &TrackList::Get(mProject);
    if(auto wt = *tl->Any<const WaveTrack>().begin()) {
       sampleCount start, len;
       GetSamples(wt, &start, &len);
@@ -760,7 +754,7 @@ void TranscriptionToolBar::OnSelectSound(wxCommandEvent & WXUNUSED(event))
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setTimes(
          newstart.as_double() / rate, newend.as_double() /  rate );
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
    }
 
@@ -772,7 +766,7 @@ void TranscriptionToolBar::OnSelectSilence(wxCommandEvent & WXUNUSED(event))
 
    //If IO is busy, abort immediately
    auto gAudioIO = AudioIOBase::Get();
-   if (gAudioIO->IsBusy()){
+   if (gAudioIO->IsBusy()) {
       SetButton(false,mButtons[TTB_SelectSilence]);
       return;
    }
@@ -780,8 +774,8 @@ void TranscriptionToolBar::OnSelectSilence(wxCommandEvent & WXUNUSED(event))
    mVk->AdjustThreshold(GetSensitivity());
 
 
-   TrackList *tl = &TrackList::Get( mProject );
-   if(auto wt = *tl->Any<const WaveTrack>().begin()) {
+   TrackList *tl = &TrackList::Get(mProject);
+   if (auto wt = *tl->Any<const WaveTrack>().begin()) {
       sampleCount start, len;
       GetSamples(wt, &start, &len);
 
@@ -797,7 +791,7 @@ void TranscriptionToolBar::OnSelectSilence(wxCommandEvent & WXUNUSED(event))
       auto &selectedRegion = ViewInfo::Get( mProject ).selectedRegion;
       selectedRegion.setTimes(
          newstart.as_double() / rate, newend.as_double() / rate);
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
 
    }
 
@@ -851,7 +845,7 @@ void TranscriptionToolBar::OnCalibrate(wxCommandEvent & WXUNUSED(event))
 #include "../LabelTrack.h"
 #include "ProjectHistory.h"
 #include "../TrackPanel.h"
-#include "../TrackPanelAx.h"
+#include "TrackFocus.h"
 #include "../tracks/labeltrack/ui/LabelTrackView.h"
 namespace {
 int DoAddLabel(
@@ -885,10 +879,7 @@ int DoAddLabel(
 //   SelectNone();
    lt->SetSelected(true);
 
-   int index;
-   int focusTrackNumber = -1;
-   index =
-      LabelTrackView::Get( *lt ).AddLabel(region, title, focusTrackNumber);
+   auto index = LabelTrackView::Get(*lt).AddLabel(region, title);
 
    ProjectHistory::Get( project )
       .PushState(XO("Added label"), XO("Label"));
@@ -982,7 +973,7 @@ void TranscriptionToolBar::OnAutomateSelection(wxCommandEvent & WXUNUSED(event))
          start = newEnd;
 
          DoAddLabel(mProject, SelectedRegion(newStartPos, newEndPos));
-      ProjectWindow::Get( mProject ).RedrawProject();
+      Viewport::Get(mProject).Redraw();
       }
       SetButton(false, mButtons[TTB_AutomateSelection]);
    }
@@ -1149,23 +1140,22 @@ void OnPlaySpeedDec(const CommandContext &context)
    }
 }
 
-using namespace MenuTable;
+using namespace MenuRegistry;
 
-BaseItemSharedPtr ExtraPlayAtSpeedMenu()
+auto ExtraPlayAtSpeedMenu()
 {
-   static BaseItemSharedPtr menu{
+   static auto menu = std::shared_ptr{
       Menu( wxT("PlayAtSpeed"), XXO("&Play-at-Speed") ) };
    return menu;
 }
 
-AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part1"),
-   Indirect(ExtraPlayAtSpeedMenu())
+AttachedItem sAttachment2{ Indirect(ExtraPlayAtSpeedMenu()),
+   wxT("Optional/Extra/Part1")
 };
 
-BaseItemSharedPtr ExtraPlayAtSpeedItems()
+auto ExtraPlayAtSpeedItems()
 {
-   static BaseItemSharedPtr items{
+   static auto items = std::shared_ptr{
    Items( "",
       /* i18n-hint: 'Normal Play-at-Speed' doesn't loop or cut preview. */
       Command( wxT("PlayAtSpeedLooped"), XXO("&Play-at-Speed"),
@@ -1184,10 +1174,9 @@ BaseItemSharedPtr ExtraPlayAtSpeedItems()
    return items;
 }
 
-AttachedItem sAttachment3{
+AttachedItem sAttachment3{ Indirect(ExtraPlayAtSpeedItems()),
    Placement{ wxT("Optional/Extra/Part1/PlayAtSpeed"),
-     OrderingHint::Begin },
-   Indirect(ExtraPlayAtSpeedItems())
+     OrderingHint::Begin }
 };
 
 }

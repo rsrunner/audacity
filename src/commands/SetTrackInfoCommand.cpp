@@ -10,26 +10,27 @@
 ******************************************************************//**
 
 \file SetTrackCommand.cpp
-\brief Definitions for SetTrackCommand built up from 
+\brief Definitions for SetTrackCommand built up from
 SetTrackBase, SetTrackStatusCommand, SetTrackAudioCommand and
 SetTrackVisualsCommand
 
 \class SetTrackBase
-\brief Base class for the various SetTrackCommand classes.  
-Sbclasses provide the settings that are relevant to them.
+\brief Base class for the various track modifying command classes, that
+loops over selected tracks. Subclasses override ApplyInner() to change
+one track.
 
 \class SetTrackStatusCommand
 \brief A SetTrackBase that sets name, selected and focus.
 
 \class SetTrackAudioCommand
-\brief A SetTrackBase that sets pan, gain, mute and solo.
+\brief A SetTrackBase that sets pan, volume, mute and solo.
 
 \class SetTrackVisualsCommand
 \brief A SetTrackBase that sets appearance of a track.
 
 \class SetTrackCommand
 \brief A SetTrackBase that combines SetTrackStatusCommand,
-SetTrackAudioCommand and SetTrackVisualsCommand.
+SetTrackAudioConmmand and SetTrackVisualsCommand.
 
 *//*******************************************************************/
 
@@ -37,96 +38,29 @@ SetTrackAudioCommand and SetTrackVisualsCommand.
 #include "SetTrackInfoCommand.h"
 
 #include "CommandDispatch.h"
-#include "CommandManager.h"
+#include "MenuRegistry.h"
 #include "../CommonCommandFlags.h"
 #include "LoadCommands.h"
 #include "Project.h"
-#include "../TrackPanelAx.h"
+#include "TrackFocus.h"
 #include "../TrackPanel.h"
-#include "WaveTrack.h"
+#include "tracks/playabletrack/wavetrack/ui/WaveformAppearance.h"
 #include "../prefs/WaveformSettings.h"
+#include "WaveTrack.h"
 #include "../prefs/SpectrogramSettings.h"
 #include "SettingsVisitor.h"
 #include "ShuttleGui.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackView.h"
-#include "../tracks/playabletrack/wavetrack/ui/WaveTrackViewConstants.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveChannelView.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveChannelViewConstants.h"
+#include "../tracks/playabletrack/wavetrack/ui/WaveformView.h"
 #include "CommandContext.h"
 
-SetTrackBase::SetTrackBase(){
-   mbPromptForTracks = true;
-   bIsSecondChannel = false;
-}
-
-//Define for the old scheme, where SetTrack defines its own track selection.
-//rather than using the current selection.
-//#define USE_OWN_TRACK_SELECTION
-
-
-bool SetTrackBase::ApplyInner( const CommandContext &context, Track *t  )
+bool SetTrackBase::Apply(const CommandContext & context)
 {
-      static_cast<void>(&context);
-      static_cast<void>(&t);
-      return true;
-};
-
-template<bool Const>
-bool SetTrackBase::VisitSettings( SettingsVisitorBase<Const> & S)
-{
-   static_cast<void>(S);
-#ifdef USE_OWN_TRACK_SELECTION
-   S.OptionalY( bHasTrackIndex     ).Define(     mTrackIndex,     wxT("Track"),      0, 0, 100 );
-   S.OptionalN( bHasChannelIndex   ).Define(     mChannelIndex,   wxT("Channel"),    0, 0, 100 );
-#endif
-   return true;
-}
-
-bool SetTrackBase::VisitSettings( SettingsVisitor & S )
-   { return VisitSettings<false>(S); }
-
-bool SetTrackBase::VisitSettings( ConstSettingsVisitor & S )
-   { return VisitSettings<true>(S); }
-
-void SetTrackBase::PopulateOrExchange(ShuttleGui & S)
-{
-   static_cast<void>(S);
-#ifdef USE_OWN_TRACK_SELECTION
-   if( !mbPromptForTracks )
-      return;
-   S.AddSpace(0, 5);
-   S.StartMultiColumn(3, wxEXPAND);
-   {
-      S.SetStretchyCol( 2 );
-      S.Optional( bHasTrackIndex  ).TieNumericTextBox(  XO("Track Index:"),   mTrackIndex );
-      S.Optional( bHasChannelIndex).TieNumericTextBox(  XO("Channel Index:"), mChannelIndex );
-   }
-   S.EndMultiColumn();
-#endif
-}
-
-bool SetTrackBase::Apply(const CommandContext & context  )
-{
-   long i = 0;// track counter
-   long j = 0;// channel counter
-   auto &tracks = TrackList::Get( context.project );
-   for ( auto t : tracks.Leaders() )
-   {
-      auto channels = TrackList::Channels(t);
-      for ( auto channel : channels ) {
-         bool bThisTrack =
-#ifdef USE_OWN_TRACK_SELECTION
-         (bHasTrackIndex && (i==mTrackIndex)) ||
-         (bHasChannelIndex && (j==mChannelIndex ) ) ||
-         (!bHasTrackIndex && !bHasChannelIndex) ;
-#else
-         channel->GetSelected();
-#endif
-
-         if( bThisTrack ){
-            ApplyInner( context, channel );
-         }
-         ++j; // count all channels
-      }
-      ++i; // count groups of channels
+   auto &tracks = TrackList::Get(context.project);
+   for (auto t : tracks) {
+      if (t->GetSelected())
+         ApplyInner(context, *t);
    }
    return true;
 }
@@ -138,7 +72,6 @@ namespace{ BuiltinCommandsModule::Registration< SetTrackStatusCommand > reg; }
 
 template<bool Const>
 bool SetTrackStatusCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
-   SetTrackBase::VisitSettings( S );
    S.OptionalN( bHasTrackName      ).Define(     mTrackName,      wxT("Name"),       _("Unnamed") );
    // There is also a select command.  This is an alternative.
    S.OptionalN( bHasSelected       ).Define(     bSelected,       wxT("Selected"),   false );
@@ -154,7 +87,6 @@ bool SetTrackStatusCommand::VisitSettings( ConstSettingsVisitor & S )
 
 void SetTrackStatusCommand::PopulateOrExchange(ShuttleGui & S)
 {
-   SetTrackBase::PopulateOrExchange( S );
    S.StartMultiColumn(3, wxEXPAND);
    {
       S.SetStretchyCol( 2 );
@@ -170,30 +102,23 @@ void SetTrackStatusCommand::PopulateOrExchange(ShuttleGui & S)
    S.EndMultiColumn();
 }
 
-bool SetTrackStatusCommand::ApplyInner(const CommandContext & context, Track * t )
+bool SetTrackStatusCommand::ApplyInner(const CommandContext & context, Track &t)
 {
    //auto wt = dynamic_cast<WaveTrack *>(t);
    //auto pt = dynamic_cast<PlayableTrack *>(t);
 
-   // You can get some intriguing effects by setting R and L channels to 
-   // different values.
-   if( bHasTrackName )
-      t->SetName(mTrackName);
+   if (bHasTrackName)
+      t.SetName(mTrackName);
 
-   // In stereo tracks, both channels need selecting/deselecting.
-   if( bHasSelected )
-      t->SetSelected(bSelected);
+   if (bHasSelected)
+      t.SetSelected(bSelected);
 
-   // These ones don't make sense on the second channel of a stereo track.
-   if( !bIsSecondChannel ){
-      if( bHasFocused )
-      {
-         auto &trackFocus = TrackFocus::Get( context.project );
-         if( bFocused)
-            trackFocus.Set( t );
-         else if( t == trackFocus.Get() )
-            trackFocus.Set( nullptr );
-      }
+   if (bHasFocused) {
+      auto &trackFocus = TrackFocus::Get(context.project);
+      if (bFocused)
+         trackFocus.Set(&t);
+      else if (&t == trackFocus.Get())
+         trackFocus.Set(nullptr);
    }
    return true;
 }
@@ -207,11 +132,10 @@ namespace{ BuiltinCommandsModule::Registration< SetTrackAudioCommand > reg2; }
 
 template<bool Const>
 bool SetTrackAudioCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
-   SetTrackBase::VisitSettings( S );
    S.OptionalN( bHasMute           ).Define(     bMute,           wxT("Mute"),       false );
    S.OptionalN( bHasSolo           ).Define(     bSolo,           wxT("Solo"),       false );
 
-   S.OptionalN( bHasGain           ).Define(     mGain,           wxT("Gain"),       0.0,  -36.0, 36.0);
+   S.OptionalN( bHasVolume         ).Define(     mVolume,         wxT("Volume"),     0.0,  -36.0, 36.0);
    S.OptionalN( bHasPan            ).Define(     mPan,            wxT("Pan"),        0.0, -100.0, 100.0);
    return true;
 };
@@ -224,7 +148,6 @@ bool SetTrackAudioCommand::VisitSettings( ConstSettingsVisitor & S )
 
 void SetTrackAudioCommand::PopulateOrExchange(ShuttleGui & S)
 {
-   SetTrackBase::PopulateOrExchange( S );
    S.StartMultiColumn(2, wxEXPAND);
    {
       S.SetStretchyCol( 1 );
@@ -235,30 +158,27 @@ void SetTrackAudioCommand::PopulateOrExchange(ShuttleGui & S)
    S.StartMultiColumn(3, wxEXPAND);
    {
       S.SetStretchyCol( 2 );
-      S.Optional( bHasGain        ).TieSlider(          XXO("Gain:"),          mGain, 36.0,-36.0);
+      S.Optional( bHasVolume      ).TieSlider(          XXO("Volume:"),        mVolume, 36.0,-36.0);
       S.Optional( bHasPan         ).TieSlider(          XXO("Pan:"),           mPan,  100.0, -100.0);
    }
    S.EndMultiColumn();
 }
 
-bool SetTrackAudioCommand::ApplyInner(const CommandContext & context, Track * t )
+bool SetTrackAudioCommand::ApplyInner(const CommandContext & context, Track &t)
 {
    static_cast<void>(context);
-   auto wt = dynamic_cast<WaveTrack *>(t);
-   auto pt = dynamic_cast<PlayableTrack *>(t);
+   auto wt = dynamic_cast<WaveTrack *>(&t);
+   auto pt = dynamic_cast<PlayableTrack *>(&t);
 
-   if( wt && bHasGain )
-      wt->SetGain(DB_TO_LINEAR(mGain));
-   if( wt && bHasPan )
+   if (wt && bHasVolume)
+      wt->SetVolume(DB_TO_LINEAR(mVolume));
+   if (wt && bHasPan)
       wt->SetPan(mPan/100.0);
 
-   // These ones don't make sense on the second channel of a stereo track.
-   if( !bIsSecondChannel ){
-      if( pt && bHasSolo )
-         pt->SetSolo(bSolo);
-      if( pt && bHasMute )
-         pt->SetMute(bMute);
-   }
+   if (pt && bHasSolo)
+      pt->SetSolo(bSolo);
+   if (pt && bHasMute)
+      pt->SetMute(bMute);
    return true;
 }
 
@@ -322,16 +242,15 @@ static const EnumValueSymbol kZoomTypeStrings[nZoomTypes] =
 
 static EnumValueSymbols DiscoverSubViewTypes()
 {
-   const auto &types = WaveTrackSubViewType::All();
+   const auto &types = WaveChannelSubViewType::All();
    auto result = transform_container< EnumValueSymbols >(
-      types, std::mem_fn( &WaveTrackSubView::Type::name ) );
-   result.push_back( WaveTrackViewConstants::MultiViewSymbol );
+      types, std::mem_fn(&WaveChannelSubView::Type::name) );
+   result.push_back(WaveChannelViewConstants::MultiViewSymbol);
    return result;
 }
 
 template<bool Const>
-bool SetTrackVisualsCommand::VisitSettings( SettingsVisitorBase<Const> & S ){ 
-   SetTrackBase::VisitSettings( S );
+bool SetTrackVisualsCommand::VisitSettings( SettingsVisitorBase<Const> & S ){
    S.OptionalN( bHasHeight         ).Define(     mHeight,         wxT("Height"),     120, 44, 2000 );
 
    {
@@ -362,14 +281,13 @@ bool SetTrackVisualsCommand::VisitSettings( ConstSettingsVisitor & S )
 
 void SetTrackVisualsCommand::PopulateOrExchange(ShuttleGui & S)
 {
-   SetTrackBase::PopulateOrExchange( S );
    S.StartMultiColumn(3, wxEXPAND);
    {
       S.SetStretchyCol( 2 );
       S.Optional( bHasHeight      ).TieNumericTextBox(  XXO("Height:"),        mHeight );
       S.Optional( bHasColour      ).TieChoice(          XXO("Color:"),         mColour,
          Msgids(  kColourStrings, nColours ) );
-      
+
       {
          auto symbols = DiscoverSubViewTypes();
          auto typeNames = transform_container<TranslatableStrings>(
@@ -397,38 +315,41 @@ void SetTrackVisualsCommand::PopulateOrExchange(ShuttleGui & S)
    {
       S.SetStretchyCol( 2 );
       auto schemes = SpectrogramSettings::GetColorSchemeNames();
-      S.Optional( bHasSpecColorScheme).TieChoice( XC("Sche&me", "spectrum prefs"), mSpecColorScheme,
+      S.Optional( bHasSpecColorScheme).TieChoice( XC("Sche&me:", "spectrum prefs"), mSpecColorScheme,
          Msgids( schemes.data(), schemes.size() ) );
    }
    S.EndMultiColumn();
 }
 
-bool SetTrackVisualsCommand::ApplyInner(const CommandContext & context, Track * t )
+bool SetTrackVisualsCommand::ApplyInner(
+   const CommandContext & context, Track &t)
 {
    static_cast<void>(context);
-   auto wt = dynamic_cast<WaveTrack *>(t);
+   const auto wt = dynamic_cast<WaveTrack *>(&t);
+   if (!wt)
+      return true;
+   auto &wc = **wt->Channels().begin();
    //auto pt = dynamic_cast<PlayableTrack *>(t);
    static const double ZOOMLIMIT = 0.001f;
 
-   // You can get some intriguing effects by setting R and L channels to 
-   // different values.
-   if( wt && bHasColour )
-      wt->SetWaveColorIndex( mColour );
+   if (bHasColour)
+      WaveformAppearance::Get(*wt).SetColorIndex(mColour);
 
-   if( t && bHasHeight )
-      TrackView::Get( *t ).SetExpandedHeight( mHeight );
+   if (bHasHeight)
+      for (auto pChannel : t.Channels<WaveChannel>())
+         ChannelView::Get(*pChannel).SetExpandedHeight(mHeight);
 
-   if( wt && bHasDisplayType  ) {
-      auto &view = WaveTrackView::Get( *wt );
-      auto &all = WaveTrackSubViewType::All();
+   if (bHasDisplayType) {
+      auto &view = WaveChannelView::Get(wc);
+      auto &all = WaveChannelSubViewType::All();
       if (mDisplayType < all.size())
          view.SetDisplay( all[ mDisplayType ].id );
       else {
          view.SetMultiView( true );
-         view.SetDisplay( WaveTrackSubViewType::Default(), false );
+         view.SetDisplay(WaveChannelSubViewType::Default(), false);
       }
    }
-   if (wt && bHasScaleType) {
+   if (bHasScaleType) {
       auto &scaleType = WaveformSettings::Get(*wt).scaleType;
       switch (mScaleType) {
       default:
@@ -438,7 +359,7 @@ bool SetTrackVisualsCommand::ApplyInner(const CommandContext & context, Track * 
       }
    }
 
-   if( wt && bHasVZoom ){
+   if (bHasVZoom) {
       auto &cache = WaveformScale::Get(*wt);
       switch( mVZoom ){
          default:
@@ -448,7 +369,7 @@ bool SetTrackVisualsCommand::ApplyInner(const CommandContext & context, Track * 
       }
    }
 
-   if ( wt && (bHasVZoomTop || bHasVZoomBottom) && !bHasVZoom){
+   if ((bHasVZoomTop || bHasVZoomBottom) && !bHasVZoom) {
       float vzmin, vzmax;
       auto &cache = WaveformScale::Get(*wt);
       cache.GetDisplayBounds(vzmin, vzmax);
@@ -460,9 +381,8 @@ bool SetTrackVisualsCommand::ApplyInner(const CommandContext & context, Track * 
          mVZoomBottom = vzmin;
       }
 
-      // Can't use std::clamp until C++17
-      mVZoomTop = std::max(-2.0, std::min(mVZoomTop, 2.0));
-      mVZoomBottom = std::max(-2.0, std::min(mVZoomBottom, 2.0));
+      mVZoomTop = std::clamp(mVZoomTop, -2.0, 2.0);
+      mVZoomBottom = std::clamp(mVZoomBottom, -2.0, 2.0);
 
       if (mVZoomBottom > mVZoomTop){
          std::swap(mVZoomTop, mVZoomBottom);
@@ -477,14 +397,12 @@ bool SetTrackVisualsCommand::ApplyInner(const CommandContext & context, Track * 
       tp.UpdateVRulers();
    }
 
-   if( wt && bHasUseSpecPrefs   ){
-      if( bUseSpecPrefs ){
+   if (bHasUseSpecPrefs) {
+      if (bUseSpecPrefs)
          // reset it, and next we will be getting the defaults.
-         SpectrogramSettings::Reset(*wt);
-      }
-      else {
-         SpectrogramSettings::Own(*wt);
-      }
+         SpectrogramSettings::Reset(wc);
+      else
+         SpectrogramSettings::Own(wc);
    }
    auto &settings = SpectrogramSettings::Get(*wt);
    if (wt && bHasSpectralSelect)
@@ -502,25 +420,17 @@ const ComponentInterfaceSymbol SetTrackCommand::Symbol
 
 namespace{ BuiltinCommandsModule::Registration< SetTrackCommand > reg4; }
 
-SetTrackCommand::SetTrackCommand()
-{
-   mSetStatus.mbPromptForTracks = false;
-   mSetAudio.mbPromptForTracks = false;
-   mSetVisuals.mbPromptForTracks = false;
-}
-
 bool SetTrackCommand::VisitSettings( SettingsVisitor & S )
    { return VisitSettings<false>(S); }
 bool SetTrackCommand::VisitSettings( ConstSettingsVisitor & S )
    { return VisitSettings<true>(S); }
 
 namespace {
-using namespace MenuTable;
+using namespace MenuRegistry;
 
 // Register menu items
 
 AttachedItem sAttachment1{
-   wxT("Optional/Extra/Part2/Scriptables1"),
    Items( wxT(""),
       // Note that the PLUGIN_SYMBOL must have a space between words,
       // whereas the short-form used here must not.
@@ -532,16 +442,17 @@ AttachedItem sAttachment1{
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
       Command( wxT("SetTrackVisuals"), XXO("Set Track Visuals..."),
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
-   )
+   ),
+   wxT("Optional/Extra/Part2/Scriptables1")
 };
 
 AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part2/Scriptables2"),
    // Note that the PLUGIN_SYMBOL must have a space between words,
    // whereas the short-form used here must not.
    // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
    // you would have to use "CompareAudio" here.)
    Command( wxT("SetTrack"), XXO("Set Track..."),
-      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
+   wxT("Optional/Extra/Part2/Scriptables2")
 };
 }

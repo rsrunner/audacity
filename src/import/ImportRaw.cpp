@@ -25,9 +25,10 @@ and sample size to help you importing data of an unknown format.
 #include "ImportRaw.h"
 
 #include "ImportPlugin.h"
+#include "ImportUtils.h"
 
 #include "AudioIOBase.h"
-#include "../FileFormats.h"
+#include "FileFormats.h"
 #include "Prefs.h"
 #include "ProjectRate.h"
 #include "SelectFile.h"
@@ -70,7 +71,7 @@ class ImportRawDialog final : public wxDialogWrapper {
    // Make static to preserve value for next raw import
    static int mEncoding;
    static unsigned mChannels;
-   static int mOffset;
+   static long long mOffset;
    static double mRate;
    static double mPercent;
 
@@ -94,7 +95,7 @@ class ImportRawDialog final : public wxDialogWrapper {
 // Initial value for Import Raw dialog
 int ImportRawDialog::mEncoding = SF_FORMAT_RAW | SF_ENDIAN_CPU | SF_FORMAT_PCM_16;
 unsigned ImportRawDialog::mChannels = 1;
-int ImportRawDialog::mOffset = 0;
+long long ImportRawDialog::mOffset = 0;
 double ImportRawDialog::mRate = 0;  // -> project rate
 double ImportRawDialog::mPercent = 100.;
 
@@ -107,7 +108,7 @@ void ImportRaw(const AudacityProject &project, wxWindow *parent, const wxString 
 {
    outTracks.clear();
 
-   TrackHolders results;
+   TrackListHolder trackList;
    auto updateResult = ProgressResult::Success;
 
    {
@@ -174,21 +175,12 @@ void ImportRaw(const AudacityProject &project, wxWindow *parent, const wxString 
       // the quality of the original file.
       //
 
-      const auto format = ImportFileHandle::ChooseFormat(
+      const auto format = ImportUtils::ChooseFormat(
          sf_subtype_to_effective_format(encoding));
 
-      results.resize(1);
-      auto &channels = results[0];
-      channels.resize(numChannels);
+      trackList = trackFactory->CreateMany(numChannels, format, rate);
 
-      {
-         // iter not used outside this scope.
-         auto iter = channels.begin();
-         for (decltype(numChannels) c = 0; c < numChannels; ++iter, ++c)
-            *iter = trackFactory->Create(format, rate);
-      }
-      const auto firstChannel = channels.begin()->get();
-      auto maxBlockSize = firstChannel->GetMaxBlockSize();
+      const auto maxBlockSize = (*trackList->Any<WaveTrack>().begin())->GetMaxBlockSize();
 
       SampleBuffer srcbuffer(maxBlockSize * numChannels, format);
       SampleBuffer buffer(maxBlockSize, format);
@@ -225,22 +217,25 @@ void ImportRaw(const AudacityProject &project, wxWindow *parent, const wxString 
          }
 
          if (block) {
-            auto iter = channels.begin();
-            for(decltype(numChannels) c = 0; c < numChannels; ++iter, ++c) {
-               if (format==int16Sample) {
-                  for(decltype(block) j=0; j<block; j++)
+            size_t c = 0;
+            ImportUtils::ForEachChannel(*trackList, [&](auto& channel)
+            {
+               if (format == int16Sample) {
+                  for (size_t j = 0; j < block; ++j)
                      ((short *)buffer.ptr())[j] =
-                     ((short *)srcbuffer.ptr())[numChannels*j+c];
+                     ((short *)srcbuffer.ptr())[numChannels * j + c];
                }
                else {
-                  for(decltype(block) j=0; j<block; j++)
+                  for (size_t j = 0; j < block; ++j)
                      ((float *)buffer.ptr())[j] =
-                     ((float *)srcbuffer.ptr())[numChannels*j+c];
+                     ((float *)srcbuffer.ptr())[numChannels * j + c];
                }
 
-               iter->get()->Append(buffer.ptr(), (format == int16Sample)?int16Sample:floatSample, block,
+               channel.AppendBuffer(buffer.ptr(),
+                  ((format == int16Sample) ? int16Sample : floatSample), block,
                   1, sf_subtype_to_effective_format(encoding));
-            }
+               ++c;
+            });
             framescompleted += block;
          }
 
@@ -257,11 +252,7 @@ void ImportRaw(const AudacityProject &project, wxWindow *parent, const wxString 
    if (updateResult == ProgressResult::Failed || updateResult == ProgressResult::Cancelled)
       throw UserException{};
 
-   if (!results.empty() && !results[0].empty()) {
-      for (const auto &channel : results[0])
-         channel->Flush();
-      outTracks.swap(results);
-   }
+   ImportUtils::FinalizeImport(outTracks, move(*trackList));
 }
 
 
@@ -446,12 +437,12 @@ ImportRawDialog::~ImportRawDialog()
 
 void ImportRawDialog::OnOK(wxCommandEvent & WXUNUSED(event))
 {
-   long l;
+   long long l;
 
    mEncoding = mEncodingSubtype[mEncodingChoice->GetSelection()];
    mEncoding += (mEndianChoice->GetSelection() * 0x10000000);
    mChannels = mChannelChoice->GetSelection() + 1;
-   mOffsetText->GetValue().ToLong(&l);
+   mOffsetText->GetValue().ToLongLong(&l);
    mOffset = l;
    mPercentText->GetValue().ToDouble(&mPercent);
    mRateText->GetValue().ToDouble(&mRate);

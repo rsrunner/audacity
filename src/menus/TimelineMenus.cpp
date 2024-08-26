@@ -12,64 +12,63 @@
 
 #include "Project.h"
 
-#include "../commands/CommandManager.h"
-#include "../commands/CommandContext.h"
+#include "CommandManager.h"
+#include "CommandContext.h"
 
 namespace
 {
-void SetRulerType(const CommandContext& context, AdornedRulerPanel::RulerTypeValues type)
+void SetTimeDisplayMode(const CommandContext& context, TimeDisplayMode type)
 {
    auto& project = context.project;
 
    auto& ruler = AdornedRulerPanel::Get(project);
-   ruler.SetRulerType(type);
+   ruler.SetTimeDisplayMode(type);
 
-   CommandManager::Get(project).UpdateCheckmarks(project);
+   CommandManager::Get(project).UpdateCheckmarks();
 }
 
 void OnSetMinutesSeconds(const CommandContext& context)
 {
-   SetRulerType(context, AdornedRulerPanel::stMinutesAndSeconds);
+   SetTimeDisplayMode(context, TimeDisplayMode::MinutesAndSeconds);
 }
 
 void OnSetBeatsAndMeasures(const CommandContext& context)
 {
-   SetRulerType(context, AdornedRulerPanel::stBeatsAndMeasures);
+   SetTimeDisplayMode(context, TimeDisplayMode::BeatsAndMeasures);
 }
 
-AdornedRulerPanel::RulerTypeValues GetRulerType(const AudacityProject& project)
+TimeDisplayMode GetTimeDisplayMode(const AudacityProject& project)
 {
    auto& panel = AdornedRulerPanel::Get(project);
-   return panel.GetRulerType();
+   return panel.GetTimeDisplayMode();
 }
 
-using namespace MenuTable;
+using namespace MenuRegistry;
 
-BaseItemSharedPtr ExtraSelectionMenu()
+auto ExtraSelectionMenu()
 {
-   using Options = CommandManager::Options;
-   static BaseItemSharedPtr menu { Menu(
-      wxT("Timeline"), XXO("&Timeline"),
+   static auto menu = std::shared_ptr{ Menu(
+      wxT("Timeline"), XXO("Tim&eline"),
       Command(
          wxT("MinutesAndSeconds"), XXO("Minutes and Seconds"),
          OnSetMinutesSeconds, AlwaysEnabledFlag,
-         CommandManager::Options {}.CheckTest(
+         Options{}.CheckTest(
             [](const AudacityProject& project) {
-               return GetRulerType(project) ==
-                      AdornedRulerPanel::stMinutesAndSeconds;
+               return GetTimeDisplayMode(project) ==
+                      TimeDisplayMode::MinutesAndSeconds;
             })),
       Command(
          wxT("BeatsAndMeasures"), XXO("Beats and Measures"),
          OnSetBeatsAndMeasures, AlwaysEnabledFlag,
-         CommandManager::Options {}.CheckTest(
+         Options{}.CheckTest(
             [](const AudacityProject& project) {
-               return GetRulerType(project) ==
-                      AdornedRulerPanel::stBeatsAndMeasures;
+               return GetTimeDisplayMode(project) ==
+                      TimeDisplayMode::BeatsAndMeasures;
             }))) };
    return menu;
 }
 
-AttachedItem sAttachment2 { wxT("Optional/Extra/Part1"),
-   Indirect(ExtraSelectionMenu()) };
+AttachedItem sAttachment2 { Indirect(ExtraSelectionMenu()),
+   wxT("View/Other/Toolbars") };
 
 } // namespace

@@ -48,6 +48,7 @@ for shared and private configs - which need to move out.
 // Registry has the list of plug ins
 #define REGVERKEY wxString(wxT("/pluginregistryversion"))
 #define REGROOT wxString(wxT("/pluginregistry/"))
+#define REGCUSTOMPATHS wxString(wxT("/providercustompaths"))
 
 // Settings has the values of the plug in settings.
 #define SETVERKEY wxString(wxT("/pluginsettingsversion"))
@@ -226,7 +227,7 @@ void PluginManager::FindFilesInPathList(const wxString & pattern,
    }
  
    // Add the "Audacity" plug-ins directory
-   wxFileName ff = PlatformCompatibility::GetExecutablePath();
+   wxFileName ff = wxString { PlatformCompatibility::GetExecutablePath() };
 #if defined(__WXMAC__)
    // Path ends for example in "Audacity.app/Contents/MacOSX"
    //ff.RemoveLastDir();
@@ -367,7 +368,7 @@ void PluginManager::InitializePlugins()
 // PluginManager implementation
 // ----------------------------------------------------------------------------
 
-static PluginManager::FileConfigFactory sFactory;
+static PluginManager::ConfigFactory sFactory;
 
 // ============================================================================
 //
@@ -386,7 +387,7 @@ PluginManager & PluginManager::Get()
    return *mInstance;
 }
 
-void PluginManager::Initialize(FileConfigFactory factory)
+void PluginManager::Initialize(ConfigFactory factory)
 {
    sFactory = move(factory);
 
@@ -551,7 +552,7 @@ void PluginManager::Load()
       // This DeleteAll affects pluginregistry.cfg only, not audacity.cfg
       // That is, the memory of on/off states of effect (and generator,
       // analyzer, and tool) plug-ins
-      registry.DeleteAll();
+      registry.Clear();
       registry.Flush();
       return;
    }
@@ -564,19 +565,14 @@ void PluginManager::Load()
       // Conversion code here, for when registry version changes.
 
       // We iterate through the effects, possibly updating their info.
-      wxString groupName;
-      long groupIndex;
       wxString group = GetPluginTypeString(PluginTypeEffect);
       wxString cfgPath = REGROOT + group + wxCONFIG_PATH_SEPARATOR;
       wxArrayString groupsToDelete;
 
-      registry.SetPath(cfgPath);
-      for (bool cont = registry.GetFirstGroup(groupName, groupIndex);
-         cont;
-         registry.SetPath(cfgPath),
-         cont = registry.GetNextGroup(groupName, groupIndex))
+      auto cfgGroup = registry.BeginGroup(cfgPath);
+      for(const auto& groupName : registry.GetChildGroups())
       {
-         registry.SetPath(groupName);
+         auto effectGroup = registry.BeginGroup(groupName);
          wxString effectSymbol = registry.Read(KEY_SYMBOL, "");
          wxString effectVersion = registry.Read(KEY_VERSION, "");
 
@@ -597,14 +593,12 @@ void PluginManager::Load()
                groupsToDelete.push_back(cfgPath + groupName);
             }
          }
-
       }
       // Doing the deletion within the search loop risked skipping some items,
       // hence the delayed delete.
       for (unsigned int i = 0; i < groupsToDelete.size(); i++) {
          registry.DeleteGroup(groupsToDelete[i]);
       }
-      registry.SetPath("");
       // Updates done.  Make sure we read the updated data later.
       registry.Flush();
    }
@@ -622,7 +616,7 @@ void PluginManager::Load()
    return;
 }
 
-void PluginManager::LoadGroup(FileConfig *pRegistry, PluginType type)
+void PluginManager::LoadGroup(audacity::BasicSettings *pRegistry, PluginType type)
 {
 #ifdef __WXMAC__
    // Bug 1590: On Mac, we should purge the registry of Nyquist plug-ins
@@ -630,7 +624,8 @@ void PluginManager::LoadGroup(FileConfig *pRegistry, PluginType type)
    // were properly installed in /Applications (or whatever it is called in
    // your locale)
 
-   const auto fullExePath = PlatformCompatibility::GetExecutablePath();
+   const auto fullExePath =
+      wxString { PlatformCompatibility::GetExecutablePath() };
 
    // Strip rightmost path components up to *.app
    wxFileName exeFn{ fullExePath };
@@ -660,22 +655,15 @@ void PluginManager::LoadGroup(FileConfig *pRegistry, PluginType type)
 
    wxString strVal;
    bool boolVal;
-   wxString groupName;
-   long groupIndex;
-   wxString group = GetPluginTypeString(type);
-   wxString cfgPath = REGROOT + group + wxCONFIG_PATH_SEPARATOR;
+   wxString cfgPath = REGROOT + GetPluginTypeString(type) + wxCONFIG_PATH_SEPARATOR;
 
-   pRegistry->SetPath(cfgPath);
-   for (bool cont = pRegistry->GetFirstGroup(groupName, groupIndex);
-        cont;
-        pRegistry->SetPath(cfgPath),
-        cont = pRegistry->GetNextGroup(groupName, groupIndex))
+   const auto cfgGroup = pRegistry->BeginGroup(cfgPath);
+   for(const auto& group : pRegistry->GetChildGroups())
    {
       PluginDescriptor plug;
+      const auto effectGroup = pRegistry->BeginGroup(group);
 
-      pRegistry->SetPath(groupName);
-
-      groupName = ConvertID(groupName);
+      auto groupName = ConvertID(group);
 
       // Bypass group if the ID is already in use
       if (mRegisteredPlugins.count(groupName))
@@ -686,7 +674,7 @@ void PluginManager::LoadGroup(FileConfig *pRegistry, PluginType type)
       plug.SetPluginType(type);
 
       // Get the provider ID and bypass group if not found
-      if (!pRegistry->Read(KEY_PROVIDERID, &strVal, wxEmptyString))
+      if (!pRegistry->Read(KEY_PROVIDERID, &strVal, {}))
       {
          // Bypass group if the provider isn't valid
          if (!strVal.empty() && !mRegisteredPlugins.count(strVal))
@@ -695,7 +683,7 @@ void PluginManager::LoadGroup(FileConfig *pRegistry, PluginType type)
       plug.SetProviderID(PluginID(strVal));
 
       // Get the path (optional)
-      pRegistry->Read(KEY_PATH, &strVal, wxEmptyString);
+      pRegistry->Read(KEY_PATH, &strVal, {});
       if (!AcceptPath(strVal))
          // Ignore the obsolete path in the config file, during session,
          // but don't remove it from the file.  Maybe you really want to
@@ -886,7 +874,7 @@ void PluginManager::Save()
    auto &registry = *pRegistry;
 
    // Clear pluginregistry.cfg (not audacity.cfg)
-   registry.DeleteAll();
+   registry.Clear();
 
    // Save the individual groups
    SaveGroup(&registry, PluginTypeEffect);
@@ -921,7 +909,26 @@ const PluginRegistryVersion &PluginManager::GetRegistryVersion() const
    return mRegver;
 }
 
-void PluginManager::SaveGroup(FileConfig *pRegistry, PluginType type)
+
+PluginPaths PluginManager::ReadCustomPaths(const PluginProvider& provider)
+{
+   auto group = mSettings->BeginGroup(REGCUSTOMPATHS);
+   const auto key = GetID(&provider);
+   const auto paths = mSettings->Read(key, wxString{});
+   const auto wxarr = wxSplit(paths, ';');
+   return PluginPaths(wxarr.begin(), wxarr.end());
+}
+
+void PluginManager::StoreCustomPaths(const PluginProvider& provider, const PluginPaths& paths)
+{
+   auto group = mSettings->BeginGroup(REGCUSTOMPATHS);
+   const auto key = GetID(&provider);
+   wxArrayString wxarr;
+   std::copy(paths.begin(), paths.end(), std::back_inserter(wxarr));
+   mSettings->Write(key, wxJoin(wxarr, ';'));
+}
+
+void PluginManager::SaveGroup(audacity::BasicSettings *pRegistry, PluginType type)
 {
    wxString group = GetPluginTypeString(type);
    for (auto &pair : mRegisteredPlugins) {
@@ -932,7 +939,7 @@ void PluginManager::SaveGroup(FileConfig *pRegistry, PluginType type)
          continue;
       }
 
-      pRegistry->SetPath(REGROOT + group + wxCONFIG_PATH_SEPARATOR + ConvertID(plug.GetID()));
+      const auto pluginGroup = pRegistry->BeginGroup(REGROOT + group + wxCONFIG_PATH_SEPARATOR + ConvertID(plug.GetID()));
 
       pRegistry->Write(KEY_PATH, plug.GetPath());
 
@@ -1124,7 +1131,8 @@ void PluginManager::EnablePlugin(const PluginID & ID, bool enable)
       iter->second.SetEnabled(enable);
 }
 
-const ComponentInterfaceSymbol & PluginManager::GetSymbol(const PluginID & ID)
+const ComponentInterfaceSymbol&
+PluginManager::GetSymbol(const PluginID& ID) const
 {
    if (auto iter = mRegisteredPlugins.find(ID); iter == mRegisteredPlugins.end()) {
       static ComponentInterfaceSymbol empty;
@@ -1132,6 +1140,38 @@ const ComponentInterfaceSymbol & PluginManager::GetSymbol(const PluginID & ID)
    }
    else
       return iter->second.GetSymbol();
+}
+
+TranslatableString PluginManager::GetName(const PluginID& ID) const
+{
+   return GetSymbol(ID).Msgid();
+}
+
+CommandID PluginManager::GetCommandIdentifier(const PluginID& ID) const
+{
+   const auto name = GetSymbol(ID).Internal();
+   return EffectDefinitionInterface::GetSquashedName(name);
+}
+
+const PluginID&
+PluginManager::GetByCommandIdentifier(const CommandID& strTarget)
+{
+   static PluginID empty;
+   if (strTarget.empty()) // set GetCommandIdentifier to wxT("") to not show an
+                          // effect in Batch mode
+   {
+      return empty;
+   }
+
+   // Effects OR Generic commands...
+   for (auto& plug :
+        PluginsOfType(PluginTypeEffect | PluginTypeAudacityCommand))
+   {
+      auto& ID = plug.GetID();
+      if (GetCommandIdentifier(ID) == strTarget)
+         return ID;
+   }
+   return empty;
 }
 
 ComponentInterface *PluginManager::Load(const PluginID & ID)
@@ -1234,12 +1274,12 @@ std::map<wxString, std::vector<wxString>> PluginManager::CheckPluginUpdates()
    return newPaths;
 }
 
-PluginID PluginManager::GetID(PluginProvider *provider)
+PluginID PluginManager::GetID(const PluginProvider *provider)
 {
    return ModuleManager::GetID(provider);
 }
 
-PluginID PluginManager::GetID(ComponentInterface *command)
+PluginID PluginManager::GetID(const ComponentInterface *command)
 {
    return wxString::Format(wxT("%s_%s_%s_%s_%s"),
                            GetPluginTypeString(PluginTypeAudacityCommand),
@@ -1351,7 +1391,7 @@ PluginDescriptor & PluginManager::CreatePlugin(const PluginID & id,
    return plug;
 }
 
-FileConfig *PluginManager::GetSettings()
+audacity::BasicSettings *PluginManager::GetSettings()
 {
    if (!mSettings)
    {
@@ -1381,44 +1421,27 @@ FileConfig *PluginManager::GetSettings()
    return mSettings.get();
 }
 
-bool PluginManager::HasGroup(const RegistryPath & group)
+bool PluginManager::HasGroup(const RegistryPath & groupName)
 {
    auto settings = GetSettings();
 
-   bool res = settings->HasGroup(group);
-   if (res)
-   {
-      // The group exists, but empty groups aren't considered valid
-      wxString oldPath = settings->GetPath();
-      settings->SetPath(group);
-      res = settings->GetNumberOfEntries() || settings->GetNumberOfGroups();
-      settings->SetPath(oldPath);
-   }
-
-   return res;
+   if(!settings->HasGroup(groupName))
+      return false;
+   
+   auto group = settings->BeginGroup(groupName);
+   return !settings->GetChildGroups().empty() || !settings->GetChildKeys().empty();
 }
 
-bool PluginManager::GetSubgroups(const RegistryPath & group, RegistryPaths & subgroups)
+bool PluginManager::GetSubgroups(const RegistryPath & groupName, RegistryPaths & subgroups)
 {
-   if (group.empty() || !HasGroup(group))
+   if (groupName.empty() || !HasGroup(groupName))
    {
       return false;
    }
 
-   wxString path = GetSettings()->GetPath();
-   GetSettings()->SetPath(group);
-
-   wxString name;
-   long index = 0;
-   if (GetSettings()->GetFirstGroup(name, index))
-   {
-      do
-      {
-         subgroups.push_back(name);
-      } while (GetSettings()->GetNextGroup(name, index));
-   }
-
-   GetSettings()->SetPath(path);
+   auto group = GetSettings()->BeginGroup(groupName);
+   for(const auto& name : GetSettings()->GetChildGroups())
+      subgroups.push_back(name);
 
    return true;
 }
@@ -1427,6 +1450,8 @@ bool PluginManager::HasConfigValue(const RegistryPath & key)
 {
    return GetSettings()->Exists(key);
 }
+
+template<typename T> class TD;
 
 bool PluginManager::GetConfigValue(
    const RegistryPath & key, ConfigReference var, ConfigConstReference defval)
@@ -1440,7 +1465,9 @@ bool PluginManager::GetConfigValue(
       using Type = typename decltype(var)::type;
       const auto pDefval =
          std::get_if<std::reference_wrapper<const Type>>(&defval);
-      return GetSettings()->Read(key, pVar, *pDefval);
+      //TD<decltype(pDefval)> defType;
+      //return true;
+      return GetSettings()->Read(key, pVar, pDefval->get());
    };
    return Visit(visitor, var);
 }

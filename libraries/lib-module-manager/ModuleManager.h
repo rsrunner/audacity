@@ -12,9 +12,10 @@
 #ifndef __AUDACITY_MODULEMANAGER_H__
 #define __AUDACITY_MODULEMANAGER_H__
 
-#include "MemoryX.h"
+#include "IteratorX.h"
 #include <functional>
 #include <map>
+#include <memory>
 #include <vector>
 #include <wx/string.h>
 
@@ -95,7 +96,7 @@ public:
    // So config compatibility will break if it is changed across Audacity versions
    static wxString GetPluginTypeString();
 
-   static PluginID GetID(PluginProvider *provider);
+   static PluginID GetID(const PluginProvider *provider);
 
 private:
    static void FindModules(FilePaths &files);

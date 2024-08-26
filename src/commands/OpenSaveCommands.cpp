@@ -18,7 +18,7 @@
 #include "OpenSaveCommands.h"
 
 #include "CommandDispatch.h"
-#include "CommandManager.h"
+#include "MenuRegistry.h"
 #include "../CommonCommandFlags.h"
 #include "LoadCommands.h"
 #include "AudacityLogger.h"
@@ -26,7 +26,7 @@
 #include "ProjectFileIO.h"
 #include "../ProjectFileManager.h"
 #include "../ProjectManager.h"
-#include "../export/Export.h"
+#include "Export.h"
 #include "SettingsVisitor.h"
 #include "ShuttleGui.h"
 #include "CommandContext.h"
@@ -71,6 +71,7 @@ bool OpenProjectCommand::Apply(const CommandContext & context){
    {
       // This path queries the user for files to open
       auto project = &context.project;
+      // Error check?
       ProjectManager::OpenFiles(project);
    }
    else
@@ -213,7 +214,7 @@ bool ClearLogCommand::VisitSettings( SettingsVisitor & S )
 bool ClearLogCommand::VisitSettings( ConstSettingsVisitor & S )
    { return VisitSettings<true>(S); }
 
-bool ClearLogCommand::PromptUser(wxWindow *parent)
+bool ClearLogCommand::PromptUser(AudacityProject& project)
 {
    return true;
 }
@@ -225,12 +226,11 @@ bool ClearLogCommand::Apply(const CommandContext &context)
 }
 
 namespace {
-using namespace MenuTable;
+using namespace MenuRegistry;
 
 // Register menu items
 
 AttachedItem sAttachment{
-   wxT("Optional/Extra/Part2/Scriptables2"),
    Items( wxT(""),
       // Note that the PLUGIN_SYMBOL must have a space between words,
       // whereas the short-form used here must not.
@@ -240,6 +240,7 @@ AttachedItem sAttachment{
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
       Command( wxT("SaveProject2"), XXO("Save Project..."),
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
-   )
+   ),
+   wxT("Optional/Extra/Part2/Scriptables2")
 };
 }

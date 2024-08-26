@@ -14,11 +14,7 @@
 It handles initialization and termination by subclassing wxApp.
 
 *//*******************************************************************/
-
-
 #include "AudacityApp.h"
-
-
 
 #if 0
 // This may be used to debug memory leaks.
@@ -79,11 +75,11 @@ It handles initialization and termination by subclassing wxApp.
 #include "commands/CommandHandler.h"
 #include "commands/AppCommandEvent.h"
 #include "widgets/ASlider.h"
-#include "FFmpeg.h"
 #include "Journal.h"
 #include "Languages.h"
-#include "Menus.h"
+#include "MenuCreator.h"
 #include "PathList.h"
+#include "PendingTracks.h"
 #include "PluginManager.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
@@ -102,15 +98,14 @@ It handles initialization and termination by subclassing wxApp.
 #include "Track.h"
 #include "prefs/PrefsDialog.h"
 #include "Theme.h"
+#include "Viewport.h"
 #include "PlatformCompatibility.h"
 #include "AutoRecoveryDialog.h"
-#include "SplashDialog.h"
 #include "FFT.h"
 #include "AudacityMessageBox.h"
 #include "prefs/DirectoriesPrefs.h"
 #include "prefs/GUISettings.h"
 #include "tracks/ui/Scrubbing.h"
-#include "FileConfig.h"
 #include "widgets/FileHistory.h"
 #include "wxWidgetsBasicUI.h"
 #include "LogWindow.h"
@@ -121,6 +116,10 @@ It handles initialization and termination by subclassing wxApp.
 
 #if defined(HAVE_UPDATES_CHECK)
 #  include "update/UpdateManager.h"
+#endif
+
+#ifdef HAS_WHATS_NEW
+#  include "WhatsNewDialog.h"
 #endif
 
 #ifdef HAS_NETWORKING
@@ -137,7 +136,7 @@ It handles initialization and termination by subclassing wxApp.
 #include "ModuleManager.h"
 #include "PluginHost.h"
 
-#include "import/Import.h"
+#include "Import.h"
 
 #if defined(USE_BREAKPAD)
 #include "BreakpadConfigurer.h"
@@ -159,14 +158,14 @@ It handles initialization and termination by subclassing wxApp.
 #endif
 #endif
 
-// DA: Logo for Splash Screen
-#ifdef EXPERIMENTAL_DA
-#include "../images/DarkAudacityLogoWithName.xpm"
-#else
-#include "../images/AudacityLogoWithName.xpm"
-#endif
+
+#include "../images/Audacity-splash.xpm"
 
 #include <thread>
+
+#include "ExportPluginRegistry.h"
+#include "SettingsWX.h"
+#include "prefs/EffectsPrefs.h"
 
 #ifdef HAS_CUSTOM_URL_HANDLING
 #include "URLSchemesRegistry.h"
@@ -253,18 +252,8 @@ void PopulatePreferences()
    // User requested that the preferences be completely reset
    if (resetPrefs)
    {
-      // pop up a dialogue
-      auto prompt = XO(
-"Reset Preferences?\n\nThis is a one-time question, after an 'install' where you asked to have the Preferences reset.");
-      int action = AudacityMessageBox(
-         prompt,
-         XO("Reset Audacity Preferences"),
-         wxYES_NO, NULL);
-      if (action == wxYES)   // reset
-      {
-         ResetPreferences();
-         writeLang = true;
-      }
+      ResetPreferences();
+      writeLang = true;
    }
 
    // Save the specified language
@@ -280,7 +269,7 @@ void PopulatePreferences()
    bool newPrefsInitialized = false;
    gPrefs->Read(wxT("/NewPrefsInitialized"), &newPrefsInitialized, false);
    if (newPrefsInitialized) {
-      gPrefs->DeleteEntry(wxT("/NewPrefsInitialized"), true);  // take group as well if empty
+      gPrefs->DeleteEntry(wxT("/NewPrefsInitialized"));
    }
 
    // record the Prefs version for future checking (this has not been used for a very
@@ -296,8 +285,8 @@ void PopulatePreferences()
    int vMinor = gPrefs->Read(wxT("/Version/Minor"), (long) 0);
    int vMicro = gPrefs->Read(wxT("/Version/Micro"), (long) 0);
 
-   gPrefs->SetVersionKeysInit(vMajor, vMinor, vMicro);   // make a note of these initial values
-                                                            // for use by ToolManager::ReadConfig()
+   SetPreferencesVersion(vMajor, vMinor, vMicro);   // make a note of these initial values
+                                                          // for use by ToolManager::ReadConfig()
 
    // These integer version keys were introduced april 4 2011 for 1.3.13
    // The device toolbar needs to be enabled due to removal of source selection features in
@@ -328,31 +317,25 @@ void PopulatePreferences()
 
       // Read in all of the existing values
       long dock, order, show, x, y, w, h;
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Dock"), &dock, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Order"), &order, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Show"), &show, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/X"), &x, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Y"), &y, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/W"), &w, -1);
-      gPrefs->Read(wxT("/GUI/ToolBars/Meter/H"), &h, -1);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Dock"), &dock, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Order"), &order, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Show"), &show, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/X"), &x, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/Y"), &y, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/W"), &w, -1L);
+      gPrefs->Read(wxT("/GUI/ToolBars/Meter/H"), &h, -1L);
 
       // "Order" must be adjusted since we're inserting two NEW toolbars
       if (dock > 0) {
-         wxString oldPath = gPrefs->GetPath();
-         gPrefs->SetPath(wxT("/GUI/ToolBars"));
 
-         wxString bar;
-         long ndx = 0;
-         bool cont = gPrefs->GetFirstGroup(bar, ndx);
-         while (cont) {
-            long o;
-            if (gPrefs->Read(bar + wxT("/Order"), &o) && o >= order) {
-               gPrefs->Write(bar + wxT("/Order"), o + 2);
-            }
-            cont = gPrefs->GetNextGroup(bar, ndx);
+         const auto toolbarsGroup = gPrefs->BeginGroup("/GUI/ToolBars");
+         for(const auto& group : gPrefs->GetChildGroups())
+         {
+            long orderValue;
+            const auto orderKey = group + wxT("/Order");
+            if(gPrefs->Read(orderKey, &orderValue) && orderValue >= order)
+               gPrefs->Write(orderKey, orderValue + 2);
          }
-         gPrefs->SetPath(oldPath);
-
          // And override the height
          h = 27;
       }
@@ -424,9 +407,25 @@ void PopulatePreferences()
          gPrefs->DeleteEntry("/GUI/ToolBars/Share Audio/W");
    }
 
-   // We need to reset the toolbar layout for 3.3
-   if (std::pair { vMajor, vMinor } < std::pair { 3, 3 })
+   // We need to reset the toolbar layout and force the splash screen for 3.4
+   if (std::pair { vMajor, vMinor } < std::pair { 3, 4 })
    {
+      if (gPrefs->Exists(wxT("/GUI/ToolBars")))
+         gPrefs->DeleteGroup(wxT("/GUI/ToolBars"));
+      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
+         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
+   }
+
+   if (std::pair { vMajor, vMinor } < std::pair { 3, 5 })
+   {
+      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
+         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
+   }
+
+   if (std::pair { vMajor, vMinor } < std::pair { 3, 6 })
+   {
+      if (gPrefs->Exists("/GUI/ShowSplashScreen"))
+         gPrefs->DeleteEntry("/GUI/ShowSplashScreen");
       if (gPrefs->Exists(wxT("/GUI/ToolBars")))
          gPrefs->DeleteGroup(wxT("/GUI/ToolBars"));
    }
@@ -454,7 +453,7 @@ void InitCrashreports()
 #if defined(USE_BREAKPAD)
       BreakpadConfigurer configurer;
       configurer.SetDatabasePathUTF8(databasePath.GetPath().ToUTF8().data())
-         .SetSenderPathUTF8(wxFileName(wxStandardPaths::Get().GetExecutablePath()).GetPath().ToUTF8().data())
+         .SetSenderPathUTF8(wxFileName(PlatformCompatibility::GetExecutablePath()).GetPath().ToUTF8().data())
     #if defined(CRASH_REPORT_URL)
          .SetReportURL(CRASH_REPORT_URL)
     #endif
@@ -508,6 +507,12 @@ void InitCrashreports()
 
 static bool gInited = false;
 static bool gIsQuitting = false;
+
+//Config instance that is set as current instance of `wxConfigBase`
+//and used to initialize `SettingsWX` objects created by
+//`audacity::ApplicationSettings` hook.
+//Created on demand by calling `audacity::ApplicationSettings::Call()`
+static std::shared_ptr<wxConfigBase> gConfig;
 
 static bool CloseAllProjects( bool force )
 {
@@ -719,14 +724,22 @@ class GnomeShutdown
  public:
    GnomeShutdown()
    {
+#ifdef __OpenBSD__
+      const char *libgnomeui = "libgnomeui-2.so";
+      const char *libgnome = "libgnome-2.so";
+#else
+      const char *libgnomeui = "libgnomeui-2.so.0";
+      const char *libgnome = "libgnome-2.so.0";
+#endif
+
       mArgv[0].reset(strdup("Audacity"));
 
-      mGnomeui = dlopen("libgnomeui-2.so.0", RTLD_NOW);
+      mGnomeui = dlopen(libgnomeui, RTLD_NOW);
       if (!mGnomeui) {
          return;
       }
 
-      mGnome = dlopen("libgnome-2.so.0", RTLD_NOW);
+      mGnome = dlopen(libgnome, RTLD_NOW);
       if (!mGnome) {
          return;
       }
@@ -1194,9 +1207,8 @@ bool AudacityApp::OnExceptionInMainLoop()
             ProjectHistory::Get( *pProject ).RollbackState();
 
             // Forget pending changes in the TrackList
-            TrackList::Get( *pProject ).ClearPendingTracks();
-
-            ProjectWindow::Get( *pProject ).RedrawProject();
+            PendingTracks::Get(*pProject).ClearPendingTracks();
+            Viewport::Get(*pProject).Redraw();
          }
 
          // Give the user an alert
@@ -1232,6 +1244,16 @@ bool AudacityApp::Initialize(int& argc, wxChar** argv)
       InitCrashreports();
    }
    return wxApp::Initialize(argc, argv);
+}
+
+void AudacityApp::CleanUp()
+{
+   //Reset the current wxConfigBase instance manually
+   //to avoid double deletion in wxWidgets 3.2
+   //See Bug #5511
+   wxConfigBase::Set(nullptr);
+   gConfig.reset();
+   wxApp::CleanUp();
 }
 
 #ifdef __WXMAC__
@@ -1360,12 +1382,7 @@ bool AudacityApp::OnInit()
 
    // Initialize preferences and language
    {
-      wxFileName configFileName{ FileNames::Configuration() };
-      auto appName = wxTheApp->GetAppName();
-      InitPreferences( AudacityFileConfig::Create(
-         appName, wxEmptyString,
-         configFileName.GetFullPath(),
-         wxEmptyString, wxCONFIG_USE_LOCAL_FILE) );
+      InitPreferences(audacity::ApplicationSettings::Call());
       PopulatePreferences();
    }
 
@@ -1442,7 +1459,10 @@ bool AudacityApp::InitPart2()
 
    // Initialize the PluginManager
    PluginManager::Get().Initialize( [](const FilePath &localFileName){
-      return AudacityFileConfig::Create({}, {}, localFileName); } );
+      return std::make_unique<SettingsWX>(
+         AudacityFileConfig::Create({}, {}, localFileName)
+      );
+   });
 
    // Parse command line and handle options that might require
    // immediate exit...no need to initialize all of the audio
@@ -1484,8 +1504,8 @@ bool AudacityApp::InitPart2()
       Journal::SetInputFileName( journalFileName );
 
    // BG: Create a temporary window to set as the top window
-   wxImage logoimage((const char **)AudacityLogoWithName_xpm);
-   logoimage.Rescale(logoimage.GetWidth() / 2, logoimage.GetHeight() / 2);
+   wxImage logoimage((const char **)Audacity_splash_xpm);
+   logoimage.Scale(logoimage.GetWidth() * (2.0/3.0), logoimage.GetHeight() * (2.0/3.0), wxIMAGE_QUALITY_HIGH);
    if( GetLayoutDirection() == wxLayout_RightToLeft)
       logoimage = logoimage.Mirror();
    wxBitmap logo(logoimage);
@@ -1567,7 +1587,7 @@ bool AudacityApp::InitPart2()
 
    //Search for the new plugins
    std::vector<wxString> failedPlugins;
-   if(!playingJournal)
+   if(!playingJournal && !SkipEffectsScanAtStartup.Read())
    {
       auto newPlugins = PluginManager::Get().CheckPluginUpdates();
       if(!newPlugins.empty())
@@ -1601,27 +1621,26 @@ bool AudacityApp::InitPart2()
       // Mainly this is to tell users of ALPHAS who don't know that they have an ALPHA.
       // Disabled for now, after discussion.
       // project->MayCheckForUpdates();
-      SplashDialog::DoHelpWelcome(*project);
+#ifdef HAS_WHATS_NEW
+      WhatsNewDialog::Show(*project);
+#endif
    }
 
 #if defined(HAVE_UPDATES_CHECK)
    UpdateManager::Start(playingJournal);
 #endif
 
-   #ifdef USE_FFMPEG
-   FFmpegStartup();
-   #endif
-
    Importer::Get().Initialize();
+   ExportPluginRegistry::Get().Initialize();
 
    // Bug1561: delay the recovery dialog, to avoid crashes.
    CallAfter( [=] () mutable {
       // Remove duplicate shortcuts when there's a change of version
       int vMajorInit, vMinorInit, vMicroInit;
-      gPrefs->GetVersionKeysInit(vMajorInit, vMinorInit, vMicroInit);
+      GetPreferencesVersion(vMajorInit, vMinorInit, vMicroInit);
       if (vMajorInit != AUDACITY_VERSION || vMinorInit != AUDACITY_RELEASE
          || vMicroInit != AUDACITY_REVISION) {
-         CommandManager::Get(*project).RemoveDuplicateShortcuts();
+         MenuCreator::Get(*project).RemoveDuplicateShortcuts();
       }
       //
       // Auto-recovery
@@ -1733,6 +1752,8 @@ bool AudacityApp::InitPart2()
    }
 #endif
 
+   HandleAppInitialized();
+
    return TRUE;
 }
 
@@ -1750,6 +1771,8 @@ void AudacityApp::OnIdle( wxIdleEvent &evt )
 {
    evt.Skip();
    try {
+      HandleAppIdle();
+
       if ( Journal::Dispatch() )
          evt.RequestMore();
    }
@@ -2429,6 +2452,8 @@ int AudacityApp::OnExit()
       Dispatch();
    }
 
+   HandleAppClosing();
+
    Importer::Get().Terminate();
 
    if(gPrefs)
@@ -2454,8 +2479,6 @@ int AudacityApp::OnExit()
 #endif
 
    AudioIO::Deinit();
-
-   MenuTable::DestroyRegistry();
 
    // Terminate the PluginManager (must be done before deleting the locale)
    PluginManager::Get().Terminate();
@@ -2728,3 +2751,17 @@ void AudacityApp::AssociateFileTypes()
 }
 #endif
 
+static audacity::ApplicationSettings::Scope applicationSettingsScope {
+   []{
+      static std::once_flag configSetupFlag;
+      std::call_once(configSetupFlag, [&]{
+         const auto configFileName = wxFileName { FileNames::Configuration() };
+         gConfig = AudacityFileConfig::Create(
+            wxTheApp->GetAppName(), wxEmptyString,
+            configFileName.GetFullPath(),
+            wxEmptyString, wxCONFIG_USE_LOCAL_FILE);
+         wxConfigBase::Set(gConfig.get());
+      });
+      return std::make_unique<SettingsWX>(gConfig);
+   }
+};

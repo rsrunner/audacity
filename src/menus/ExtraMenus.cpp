@@ -1,10 +1,8 @@
 #include "../CommonCommandFlags.h"
-#include "../Menus.h"
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectWindows.h"
-#include "../commands/CommandContext.h"
-#include "../commands/CommandManager.h"
+#include "CommandContext.h"
 #include "../toolbars/ToolManager.h"
 
 #include <wx/frame.h>
@@ -27,40 +25,32 @@ void OnFullScreen(const CommandContext &context)
 
 // Menu definitions
 
-using namespace MenuTable;
+using namespace MenuRegistry;
 
-BaseItemSharedPtr ExtraMenu()
+auto ExtraMenu()
 {
-   // Table of menu factories.
-   static BaseItemSharedPtr extraItems{ Items( wxEmptyString,
-      Section( "Part1" ),
-      Section( "Part2" )
-   ) };
-
    static const auto pred =
       []{ return gPrefs->ReadBool(wxT("/GUI/ShowExtraMenus"), false); };
-   static BaseItemSharedPtr menu{
-      ConditionalItems( wxT("Optional"),
-         pred, Menu( wxT("Extra"), XXO("Ext&ra"), extraItems ) )
+   static auto menu = std::shared_ptr{
+      ConditionalItems("Optional", pred,
+         Menu("Extra", XXO("Ext&ra"),
+            Section("Part1"),
+            Section("Part2"))
+      )
    };
    return menu;
 }
 
-AttachedItem sAttachment1{
-   wxT(""),
-   Indirect(ExtraMenu())
-};
+AttachedItem sAttachment1{ Indirect(ExtraMenu()) };
 
 // Under /MenuBar/Optional/Extra/Part2
-BaseItemSharedPtr ExtraMiscItems()
+auto ExtraMiscItems()
 {
-   using Options = CommandManager::Options;
-
    // Not a menu.
-   static BaseItemSharedPtr items{
+   static auto items = std::shared_ptr{
    Items( wxT("Misc"),
       // Delayed evaluation
-      []( AudacityProject &project ) {
+      [](AudacityProject &) {
 
    static const auto key =
 #ifdef __WXMAC__
@@ -72,7 +62,7 @@ BaseItemSharedPtr ExtraMiscItems()
 
          return (
          // Accel key is not bindable.
-         Command( wxT("FullScreenOnOff"), XXO("&Full Screen (on/off)"),
+         Command( wxT("FullScreenOnOff"), XXO("Enable &Full Screen"),
             OnFullScreen,
             AlwaysEnabledFlag,
             Options{ key }.CheckTest( []( const AudacityProject &project ) {
@@ -84,9 +74,8 @@ BaseItemSharedPtr ExtraMiscItems()
    return items;
 }
 
-AttachedItem sAttachment2{
-   Placement{ wxT("Optional/Extra/Part2"), { OrderingHint::End } },
-   Indirect(ExtraMiscItems())
+AttachedItem sAttachment2{ Indirect(ExtraMiscItems()),
+   Placement{ wxT("Optional/Extra/Part2"), { OrderingHint::End } }
 };
 
 }

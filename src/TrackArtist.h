@@ -28,6 +28,7 @@
 
 class wxRect;
 
+class PendingTracks;
 class TrackList;
 class TrackPanel;
 class SelectedRegion;
@@ -57,14 +58,6 @@ public:
    ~TrackArtist();
    static TrackArtist *Get( TrackPanelDrawingContext & );
 
-   void SetBackgroundBrushes(wxBrush unselectedBrushIn, wxBrush selectedBrushIn,
-                             wxPen unselectedPenIn, wxPen selectedPenIn) {
-     this->unselectedBrush = unselectedBrushIn;
-     this->selectedBrush = selectedBrushIn;
-     this->unselectedPen = unselectedPenIn;
-     this->selectedPen = selectedPenIn;
-   }
-
    void SetColours(int iColorIndex);
 
    void UpdatePrefs() override;
@@ -76,7 +69,6 @@ public:
    float mdBrange;            // "/GUI/EnvdBRange"
    bool mShowClipping;        // "/GUI/ShowClipping"
    int  mSampleDisplay;
-   bool mbShowTrackNameInTrack;  // "/GUI/ShowTrackNameInWaveform"
 
    wxBrush blankBrush;
    wxBrush unselectedBrush;
@@ -86,6 +78,9 @@ public:
    wxBrush dragsampleBrush;// for samples which are draggable.
    wxBrush muteSampleBrush;
    wxBrush blankSelectedBrush;
+   wxBrush envelopeBackgroundBrush;
+   wxBrush clipAffordanceBackgroundBrush;
+   wxBrush clipAffordanceBackgroundSelBrush;
    wxPen blankPen;
    wxPen unselectedPen;
    wxPen selectedPen;
@@ -96,10 +91,16 @@ public:
    wxPen muteSamplePen;
    wxPen odProgressNotYetPen;
    wxPen odProgressDonePen;
-   wxPen shadowPen;
    wxPen clippedPen;
    wxPen muteClippedPen;
    wxPen blankSelectedPen;
+
+   wxPen beatSepearatorPen[2];
+   wxPen barSepearatorPen[2];
+   wxBrush beatStrongBrush[2];
+   wxBrush beatWeakBrush[2];
+   wxBrush beatStrongSelBrush[2];
+   wxBrush beatWeakSelBrush[2];
 
 #ifdef EXPERIMENTAL_FFT_Y_GRID
    bool fftYGridOld;
@@ -114,6 +115,7 @@ public:
 
    const SelectedRegion *pSelectedRegion{};
    ZoomInfo *pZoomInfo{};
+   const PendingTracks *pPendingTracks{};
 
    bool drawEnvelope{ false };
    bool bigPoints{ false };

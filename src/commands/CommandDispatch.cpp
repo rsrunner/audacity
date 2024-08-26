@@ -12,19 +12,24 @@
 
 #include "CommandDispatch.h"
 
+#include "DoEffect.h"
 #include "CommandContext.h"
 #include "CommandManager.h"
 #include "PluginManager.h"
 #include "ProjectAudioManager.h"
-#include "ProjectWindow.h"
-#include "../effects/EffectManager.h"
+#include "ProjectWindows.h"
+#include "Viewport.h"
+#include "EffectAndCommandPluginManager.h"
+#include "EffectManager.h"
 #include "../effects/EffectUI.h"
 #include <wx/log.h>
+#include <wx/frame.h>
 
-bool CommandDispatch::HandleTextualCommand( CommandManager &commandManager,
+bool CommandDispatch::HandleTextualCommand(
    const CommandID & Str,
    const CommandContext & context, CommandFlag flags, bool alwaysEnabled)
 {
+   auto &commandManager = CommandManager::Get(context.project);
    switch ( commandManager.HandleTextualCommand(
       Str, context, flags, alwaysEnabled) ) {
    case CommandManager::CommandSuccess:
@@ -39,12 +44,11 @@ bool CommandDispatch::HandleTextualCommand( CommandManager &commandManager,
    // Not one of the singleton commands.
    // We could/should try all the list-style commands.
    // instead we only try the effects.
-   EffectManager & em = EffectManager::Get();
+   auto& pm = PluginManager::Get();
    for (auto &plug : PluginManager::Get().PluginsOfType(PluginTypeEffect))
-      if (em.GetCommandIdentifier(plug.GetID()) == Str)
+      if (pm.GetCommandIdentifier(plug.GetID()) == Str)
          return EffectUI::DoEffect(
-            plug.GetID(), context,
-            EffectManager::kConfigured);
+            plug.GetID(), context.project, EffectManager::kConfigured);
 
    return false;
 }
@@ -57,7 +61,6 @@ bool CommandDispatch::DoAudacityCommand(
    const PluginID & ID, const CommandContext & context, unsigned flags )
 {
    auto &project = context.project;
-   auto &window = ProjectWindow::Get( project );
    const PluginDescriptor *plug = PluginManager::Get().GetPlugin(ID);
    if (!plug)
       return false;
@@ -68,10 +71,8 @@ bool CommandDispatch::DoAudacityCommand(
 //    SelectAllIfNone();
    }
 
-   EffectManager & em = EffectManager::Get();
-   bool success = em.DoAudacityCommand(ID,
+   bool success = EffectAndCommandPluginManager::Get().DoAudacityCommand(ID,
       context,
-      &window,
       (flags & EffectManager::kConfigured) == 0);
 
    if (!success)
@@ -88,7 +89,7 @@ bool CommandDispatch::DoAudacityCommand(
       PushState(longDesc, shortDesc);
    }
 */
-   window.RedrawProject();
+   Viewport::Get(project).Redraw();
    return true;
 }
 
@@ -98,6 +99,6 @@ void CommandDispatch::OnAudacityCommand(const CommandContext & ctx)
    wxLogDebug( "Command was: %s", ctx.parameter.GET());
    // Not configured, so prompt user.
    CommandDispatch::DoAudacityCommand(
-      EffectManager::Get().GetEffectByIdentifier(ctx.parameter),
-      ctx, EffectManager::kNone);
+      PluginManager::Get().GetByCommandIdentifier(ctx.parameter), ctx,
+      EffectManager::kNone);
 }

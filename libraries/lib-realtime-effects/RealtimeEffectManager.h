@@ -1,11 +1,11 @@
 /**********************************************************************
- 
+
  Audacity: A Digital Audio Editor
- 
+
  RealtimeEffectManager.h
- 
+
  Paul Licameli split from EffectManager.h
- 
+
  **********************************************************************/
 
 #ifndef __AUDACITY_REALTIME_EFFECT_MANAGER__
@@ -24,6 +24,7 @@
 #include "PluginProvider.h" // for PluginID
 #include "RealtimeEffectList.h"
 
+class ChannelGroup;
 class EffectInstance;
 
 namespace RealtimeEffects {
@@ -31,7 +32,7 @@ namespace RealtimeEffects {
    class ProcessingScope;
 }
 
-///Posted when effect is being added or removed to/from track or project
+///Posted when effect is being added or removed to/from channel group or project
 struct RealtimeEffectManagerMessage
 {
    enum class Type
@@ -40,8 +41,8 @@ struct RealtimeEffectManagerMessage
       EffectReplaced,
       EffectRemoved
    };
-   Type type;
-   std::shared_ptr<Track> track; ///< null, if changes happened in the project scope
+   Type type{};
+   ChannelGroup *group{}; ///< null, if changes happened in the project scope
 };
 
 class REALTIME_EFFECTS_API RealtimeEffectManager final :
@@ -49,6 +50,10 @@ class REALTIME_EFFECTS_API RealtimeEffectManager final :
    public Observer::Publisher<RealtimeEffectManagerMessage>
 {
 public:
+   //!Special value used to identify special effects stack applied
+   //!to every playable track
+   static constexpr ChannelGroup* MasterGroup = nullptr;
+
    using Latency = std::chrono::microseconds;
 
    RealtimeEffectManager(AudacityProject &project);
@@ -63,23 +68,24 @@ public:
    bool IsActive() const noexcept;
 //   Latency GetLatency() const;
 
-   //! Main thread appends a global or per-track effect
+   //! Main thread appends a global or per-group effect
    /*!
     @param pScope if realtime is active but scope is absent, there is no effect
-    @param pTrack if null, then state is added to the global list
+    @param pGroup if null, then state is added to the global list
     @param id identifies the effect
     @return if null, the given id was not found
 
     @post result: `!result || result->GetEffect() != nullptr`
     */
    std::shared_ptr<RealtimeEffectState> AddState(
-      RealtimeEffects::InitializationScope *pScope, Track *pTrack,
+      RealtimeEffects::InitializationScope *pScope,
+      ChannelGroup *pGroup,
       const PluginID & id);
 
-   //! Main thread replaces a global or per-track effect
+   //! Main thread replaces a global or per-group effect
    /*!
     @param pScope if realtime is active but scope is absent, there is no effect
-    @param pTrack if null, then state is added to the global list
+    @param pGroup if null, then state is added to the global list
     @param index position in the list to replace; no effect if out of range
     @param id identifies the effect
     @return if null, the given id was not found and the old state remains
@@ -87,22 +93,25 @@ public:
     @post result: `!result || result->GetEffect() != nullptr`
     */
    std::shared_ptr<RealtimeEffectState> ReplaceState(
-      RealtimeEffects::InitializationScope *pScope, Track *pTrack,
+      RealtimeEffects::InitializationScope *pScope,
+      ChannelGroup *pGroup,
       size_t index, const PluginID & id);
 
-   //! Main thread removes a global or per-track effect
+   //! Main thread removes a global or per-group effect
    /*!
     @param pScope if realtime is active but scope is absent, there is no effect
-    @param pTrack if null, then state is added to the global list
+    @param pGroup if null, then state is added to the global list
     @param state the state to be removed
     */
    /*! No effect if realtime is active but scope is not supplied */
    void RemoveState(RealtimeEffects::InitializationScope *pScope,
-      Track *pTrack, std::shared_ptr<RealtimeEffectState> pState);
+      ChannelGroup *pGroup,
+      std::shared_ptr<RealtimeEffectState> pState);
 
-   //! Report the position of a state in the global or a per-track list
+   //! Report the position of a state in the global or a per-group list
    std::optional<size_t> FindState(
-      Track *pTrack, const std::shared_ptr<RealtimeEffectState> &pState) const;
+      ChannelGroup *pGroup,
+      const std::shared_ptr<RealtimeEffectState> &pState) const;
 
    bool GetSuspended() const
       { return mSuspended.load(std::memory_order_relaxed); }
@@ -122,31 +131,26 @@ private:
 
    std::shared_ptr<RealtimeEffectState>
    MakeNewState(RealtimeEffects::InitializationScope *pScope,
-      Track *pLeader, const PluginID &id);
+      ChannelGroup *pGroup,
+      const PluginID &id);
 
-   //! Main thread begins to define a set of tracks for playback
+   //! Main thread begins to define a set of groups for playback
    void Initialize(RealtimeEffects::InitializationScope &scope,
-      double sampleRate);
-   //! Main thread adds one track (passing the first of one or more
+      unsigned numPlaybackChannels, double sampleRate);
+   //! Main thread adds one group (passing the first of one or more
    //! channels), still before playback
-   void AddTrack(RealtimeEffects::InitializationScope &scope,
-      const Track &track, unsigned chans, float rate);
+   void AddGroup(RealtimeEffects::InitializationScope &scope,
+      const ChannelGroup &group, unsigned chans, float rate);
    //! Main thread cleans up after playback
    void Finalize() noexcept;
 
    friend RealtimeEffects::ProcessingScope;
-   struct REALTIME_EFFECTS_API AllListsLock {
-      RealtimeEffectManager *mpManager{};
-      AllListsLock(RealtimeEffectManager *pManager = nullptr);
-      AllListsLock(AllListsLock &&other);
-      AllListsLock& operator= (AllListsLock &&other);
-      void Reset();
-      ~AllListsLock() { Reset(); }
-   };
 
    void ProcessStart(bool suspended);
+
    /*! @copydoc ProcessScope::Process */
-   size_t Process(bool suspended, const Track &track,
+   size_t Process(bool suspended,
+      const ChannelGroup *group,
       float *const *buffers, float *const *scratch, float *dummy,
       unsigned nBuffers, size_t numSamples);
    void ProcessEnd(bool suspended) noexcept;
@@ -159,52 +163,48 @@ private:
    // using StateVisitor =
       // std::function<void(RealtimeEffectState &state, bool listIsActive)> ;
 
-   //! Visit the per-project states first, then states for leader if not null
+   //! Visit states for group or for the master when group is null
    template<typename StateVisitor>
-   void VisitGroup(Track &leader, const StateVisitor &func)
+   void VisitGroup(ChannelGroup *group, const StateVisitor &func)
    {
-      // Call the function for each effect on the master list
-      RealtimeEffectList::Get(mProject).Visit(func);
-
-      // Call the function for each effect on the track list
-      RealtimeEffectList::Get(leader).Visit(func);
+      if(group == nullptr)
+         RealtimeEffectList::Get(mProject).Visit(func);
+      else
+         // Call the function for each effect on the group list
+         RealtimeEffectList::Get(*group).Visit(func);
    }
 
    template<typename StateVisitor>
-   void VisitGroup(const Track &leader, const StateVisitor &func)
+   void VisitGroup(const ChannelGroup *group, const StateVisitor &func)
    {
-      // Call the function for each effect on the master list
-      RealtimeEffectList::Get(mProject).Visit(func);
-
-      // Call the function for each effect on the track list
-      RealtimeEffectList::Get(leader).Visit(func);
+      VisitGroup(const_cast<ChannelGroup*>(group), func);
    }
 
-   //! Visit the per-project states first, then all tracks from AddTrack
-   /*! Tracks are visited in unspecified order */
+   //! Visit the per-project states first, then all groups from AddGroup
+   /*! Groups are visited in unspecified order */
    template<typename StateVisitor>
    void VisitAll(const StateVisitor &func)
    {
       // Call the function for each effect on the master list
       RealtimeEffectList::Get(mProject).Visit(func);
 
-      // And all track lists
-      for (auto leader : mGroupLeaders)
-         RealtimeEffectList::Get(*leader).Visit(func);
+      // And all group lists
+      for (auto group : mGroups)
+         RealtimeEffectList::Get(*group).Visit(func);
    }
 
    AudacityProject &mProject;
-   Latency mLatency{ 0 };
+   //Latency mLatency{ 0 };
 
    std::atomic<bool> mSuspended{ true };
 
    bool mActive{ false };
 
-   // This member is mutated only by Initialize(), AddTrack(), Finalize()
+   // This member is mutated only by Initialize(), AddGroup(), Finalize()
    // which are to be called only while there is no playback
-   std::vector<const Track *> mGroupLeaders; //!< all are non-null
+   std::vector<const ChannelGroup *> mGroups; //!< all are non-null
 
-   std::unordered_map<const Track *, double> mRates;
+   std::unordered_map<const ChannelGroup *, double> mRates;
 };
 
 namespace RealtimeEffects {
@@ -219,8 +219,14 @@ public:
       , mwProject{ move(wProject) }
       , mNumPlaybackChannels{ numPlaybackChannels }
    {
-      if (auto pProject = mwProject.lock())
-         RealtimeEffectManager::Get(*pProject).Initialize(*this, sampleRate);
+      if (const auto pProject = mwProject.lock())
+      {
+         RealtimeEffectManager::Get(*pProject).Initialize(
+            *this,
+            numPlaybackChannels,
+            sampleRate
+         );
+      }
    }
    InitializationScope( InitializationScope &&other ) = default;
    InitializationScope& operator=( InitializationScope &&other ) = default;
@@ -230,11 +236,12 @@ public:
          RealtimeEffectManager::Get(*pProject).Finalize();
    }
 
-   void AddTrack(const Track &track, unsigned chans, float rate)
+   void AddGroup(const ChannelGroup &group,
+      unsigned chans, float rate)
    {
       if (auto pProject = mwProject.lock())
          RealtimeEffectManager::Get(*pProject)
-            .AddTrack(*this, track, chans, rate);
+            .AddGroup(*this, group, chans, rate);
    }
 
    std::vector<std::shared_ptr<EffectInstance>> mInstances;
@@ -248,14 +255,6 @@ private:
 //! Brackets one block of processing in one thread
 class ProcessingScope {
 public:
-   ProcessingScope()
-   {
-      if (auto pProject = mwProject.lock()) {
-         auto &manager = RealtimeEffectManager::Get(*pProject);
-         mLocks = { &manager };
-         mSuspended = manager.GetSuspended();
-      }
-   }
    //! Require a prior InializationScope to ensure correct nesting
    explicit ProcessingScope(InitializationScope &,
       std::weak_ptr<AudacityProject> wProject)
@@ -273,7 +272,7 @@ public:
    }
 
    //! @return how many samples to discard for latency
-   size_t Process(const Track &track,
+   size_t Process(const ChannelGroup *group,
       float *const *buffers,
       float *const *scratch,
       float *dummy,
@@ -281,16 +280,16 @@ public:
       size_t numSamples //!< length of each buffer
    )
    {
-      if (auto pProject = mwProject.lock())
+      if (const auto pProject = mwProject.lock())
+      {
          return RealtimeEffectManager::Get(*pProject)
-            .Process(mSuspended, track, buffers, scratch, dummy,
+            .Process(mSuspended, group, buffers, scratch, dummy,
                nBuffers, numSamples);
-      else
-         return 0; // consider them trivially processed
+      }
+      return 0; // consider them trivially processed
    }
 
 private:
-   RealtimeEffectManager::AllListsLock mLocks;
    std::weak_ptr<AudacityProject> mwProject;
    bool mSuspended{};
 };

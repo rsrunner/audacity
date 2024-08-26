@@ -1,11 +1,11 @@
 /**********************************************************************
- 
+
  Audacity: A Digital Audio Editor
- 
+
  @file DefaultPlaybackPolicy.cpp
- 
+
  Paul Licameli split from PlaybackSchedule.cpp
- 
+
  **********************************************************************/
 
 #include "DefaultPlaybackPolicy.h"
@@ -14,11 +14,12 @@
 #include "ViewInfo.h"
 
 DefaultPlaybackPolicy::DefaultPlaybackPolicy( AudacityProject &project,
-   double trackEndTime, double loopEndTime,
+   double trackEndTime, double loopEndTime, std::optional<double> pStartTime,
    bool loopEnabled, bool variableSpeed )
    : mProject{ project }
    , mTrackEndTime{ trackEndTime }
    , mLoopEndTime{ loopEndTime }
+   , mpStartTime{ pStartTime }
    , mLoopEnabled{ loopEnabled }
    , mVariableSpeed{ variableSpeed }
 {}
@@ -70,12 +71,36 @@ bool DefaultPlaybackPolicy::Done(
    PlaybackSchedule &schedule, unsigned long outputFrames )
 {
    if (RevertToOldDefault(schedule)) {
-      auto diff = schedule.GetTrackTime() - schedule.mT1;
+      auto diff = schedule.GetSequenceTime() - schedule.mT1;
       if (schedule.ReversedTime())
          diff *= -1;
       return sampleCount(floor(diff * mRate + 0.5)) >= 0;
    }
    return false;
+}
+
+double DefaultPlaybackPolicy::OffsetSequenceTime(
+   PlaybackSchedule& schedule, double offset)
+{
+   auto time = schedule.GetSequenceTime();
+
+   // Assuming that mpStartTime always has a value when this policy is used
+   if (mpStartTime) {
+      if (mLoopEnabled) {
+         if (time < schedule.mT0)
+            time = std::clamp(time + offset, *mpStartTime, schedule.mT1);
+         else
+            time = std::clamp(time + offset, schedule.mT0, schedule.mT1);
+      }
+      else {
+         // this includes the case where the start time is after the
+         // looped region, and mLoopEnabled is set to false
+         time = std::clamp(time + offset, *mpStartTime, schedule.mT1);
+      }
+   }
+
+   schedule.RealTimeInit(time);
+   return time;
 }
 
 PlaybackSlice
@@ -151,7 +176,7 @@ bool DefaultPlaybackPolicy::RepositionPlayback(
    PlaybackSchedule &schedule, const Mixers &playbackMixers,
    size_t frames, size_t available )
 {
-   // This executes in the TrackBufferExchange thread
+   // This executes in the SequenceBufferExchange thread
    auto data = mMessageChannel.Read();
 
    bool speedChange = false;
@@ -182,7 +207,8 @@ bool DefaultPlaybackPolicy::RepositionPlayback(
    // adjust the schedule...
    auto mine = std::tie(schedule.mT0, mLoopEndTime);
    auto theirs = std::tie(data.mT0, data.mT1);
-   if ( mLoopEnabled ? (mine != theirs) : loopWasEnabled ) {
+   if ((loopWasEnabled != mLoopEnabled) || (mLoopEnabled && mine != theirs))
+   {
       kicked = true;
       if (!empty) {
          mine = theirs;

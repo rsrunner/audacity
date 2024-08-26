@@ -15,6 +15,7 @@
 
 #include "SelectedRegion.h"
 #include "Track.h"
+#include "FileNames.h"
 
 class wxTextFile;
 
@@ -24,6 +25,13 @@ class TimeWarper;
 class LabelTrack;
 struct LabelTrackHit;
 struct TrackPanelDrawingContext;
+
+enum class LabelFormat
+{
+   TEXT,
+   SUBRIP,
+   WEBVTT,
+};
 
 class AUDACITY_DLL_API LabelStruct
 {
@@ -43,9 +51,9 @@ public:
    void MoveLabel( int iEdge, double fNewTime);
 
    struct BadFormatException {};
-   static LabelStruct Import(wxTextFile &file, int &index);
+   static LabelStruct Import(wxTextFile &file, int &index, LabelFormat format);
 
-   void Export(wxTextFile &file) const;
+   void Export(wxTextFile &file, LabelFormat format, int index) const;
 
    /// Relationships between selection region and labels
    enum TimeRelations
@@ -82,7 +90,7 @@ public:
 using LabelArray = std::vector<LabelStruct>;
 
 class AUDACITY_DLL_API LabelTrack final
-   : public Track
+   : public UniqueChannelTrack<>
    , public Observer::Publisher<struct LabelTrackEvent>
 {
  public:
@@ -110,36 +118,38 @@ class AUDACITY_DLL_API LabelTrack final
 
    void SetLabel( size_t iLabel, const LabelStruct &newLabel );
 
-   void SetOffset(double dOffset) override;
+   void MoveTo(double dOffset) override;
 
    void SetSelected(bool s) override;
 
-   double GetOffset() const override;
-   double GetStartTime() const override;
-   double GetEndTime() const override;
-
    using Holder = std::shared_ptr<LabelTrack>;
 
+   static const FileNames::FileType SubripFiles;
+   static const FileNames::FileType WebVTTFiles;
+
 private:
-   Track::Holder Clone() const override;
+   Track::Holder Clone(bool backup) const override;
 
 public:
    bool HandleXMLTag(const std::string_view& tag, const AttributesList& attrs) override;
    XMLTagHandler *HandleXMLChild(const std::string_view& tag) override;
    void WriteXML(XMLWriter &xmlFile) const override;
 
-   Track::Holder Cut  (double t0, double t1) override;
-   Track::Holder Copy (double t0, double t1, bool forClipboard = true) const override;
+   Track::Holder Cut(double t0, double t1) override;
+   Track::Holder Copy(double t0, double t1, bool forClipboard = true)
+      const override;
    void Clear(double t0, double t1) override;
-   void Paste(double t, const Track * src) override;
+   void Paste(double t, const Track &src) override;
    bool Repeat(double t0, double t1, int n);
    void SyncLockAdjust(double oldT1, double newT1) override;
 
-   void Silence(double t0, double t1) override;
+   void
+   Silence(double t0, double t1, ProgressReporter reportProgress = {}) override;
    void InsertSilence(double t, double len) override;
 
-   void Import(wxTextFile & f);
-   void Export(wxTextFile & f) const;
+   static LabelFormat FormatForFileName(const wxString & fileName);
+   void Import(wxTextFile & f, LabelFormat format);
+   void Export(wxTextFile & f, LabelFormat format) const;
 
    int GetNumLabels() const;
    const LabelStruct *GetLabel(int index) const;
@@ -153,7 +163,7 @@ public:
    void DeleteLabel(int index);
 
    // This pastes labels without shifting existing ones
-   bool PasteOver(double t, const Track *src);
+   bool PasteOver(double t, const Track &src);
 
    // PRL:  These functions were not used because they were not overrides!  Was that right?
    //Track::Holder SplitCut(double b, double e) /* not override */;
@@ -174,21 +184,37 @@ public:
    const TypeInfo &GetTypeInfo() const override;
    static const TypeInfo &ClassTypeInfo();
 
-   Track::Holder PasteInto( AudacityProject & ) const override;
+   Track::Holder PasteInto(AudacityProject &project, TrackList &list)
+      const override;
 
-   struct IntervalData final : Track::IntervalData {
+   struct Interval final : WideChannelGroupInterval {
+      Interval(const LabelTrack &track, size_t index
+      )  : mpTrack{ track.SharedPointer<const LabelTrack>() }
+         , index{ index }
+      {}
+
+      ~Interval() override;
+      double Start() const override;
+      double End() const override;
+      size_t NChannels() const override;
+      std::shared_ptr<ChannelInterval> DoGetChannel(size_t iChannel) override;
+
       size_t index;
-      explicit IntervalData(size_t index) : index{index} {};
+   private:
+      //! @invariant not null
+      const std::shared_ptr<const LabelTrack> mpTrack;
    };
-   ConstInterval MakeInterval ( size_t index ) const;
-   Interval MakeInterval ( size_t index );
-   ConstIntervals GetIntervals() const override;
-   Intervals GetIntervals() override;
+   std::shared_ptr<Interval> MakeInterval(size_t index);
 
- public:
+public:
    void SortLabels();
 
- private:
+   size_t NIntervals() const override;
+
+private:
+   std::shared_ptr<WideChannelGroupInterval> DoGetInterval(size_t iInterval)
+      override;
+
    LabelArray mLabels;
 
    // Set in copied label tracks

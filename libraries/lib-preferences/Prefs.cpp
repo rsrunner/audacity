@@ -23,8 +23,6 @@
       Version					- Audacity Version that created these prefs
       DefaultOpenPath			- Default directory for NEW file selector
    /FileFormats
-      CopyOrEditUncompressedData - Copy data from uncompressed files or
-         [ "copy", "edit"]   - edit in place?
       ExportFormat_SF1		   - Format to export PCM data in
                              (this number is a libsndfile1.0 format)
    /SamplingRate
@@ -57,18 +55,22 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 
-#include "Internat.h"
-#include "MemoryX.h"
 #include "BasicUI.h"
+#include "Internat.h"
+#include "IteratorX.h"
 #include "Observer.h"
 
-BoolSetting DefaultUpdatesCheckingFlag{
+StickySetting<BoolSetting> DefaultUpdatesCheckingFlag{
     L"/Update/DefaultUpdatesChecking", true };
 
-std::unique_ptr<FileConfig> ugPrefs {};
+std::unique_ptr<audacity::BasicSettings> ugPrefs {};
 
-FileConfig *gPrefs = nullptr;
+audacity::BasicSettings *gPrefs = nullptr;
 int gMenusDirty = 0;
+
+int gVersionMajorKeyInit{};
+int gVersionMinorKeyInit{};
+int gVersionMicroKeyInit{};
 
 struct PrefsListener::Impl
 {
@@ -80,6 +82,35 @@ struct PrefsListener::Impl
 };
 
 namespace {
+
+class PreferencesResetHandlerRegistry
+{
+   std::vector<std::unique_ptr<PreferencesResetHandler>> mHandlers;
+public:
+   static PreferencesResetHandlerRegistry& Get()
+   {
+      static PreferencesResetHandlerRegistry registry;
+      return registry;
+   }
+
+   void Register(std::unique_ptr<PreferencesResetHandler> handler)
+   {
+      mHandlers.push_back(std::move(handler));
+   }
+
+   void BeginReset()
+   {
+      for(auto& handler : mHandlers)
+         handler->OnSettingResetBegin();
+   }
+
+   void EndReset()
+   {
+      for(auto& handler : mHandlers)
+         handler->OnSettingResetEnd();
+   }
+
+};
 
 struct Hub : Observer::Publisher<int>
 {
@@ -197,39 +228,42 @@ static void CopyEntriesRecursive(wxString path, wxConfigBase *src, wxConfigBase 
 }
 #endif
 
-void InitPreferences( std::unique_ptr<FileConfig> uPrefs )
+void InitPreferences( std::unique_ptr<audacity::BasicSettings> uPrefs )
 {
    gPrefs = uPrefs.get();
    ugPrefs = std::move(uPrefs);
-   wxConfigBase::Set(gPrefs);
+   //wxConfigBase::Set(gPrefs);
    PrefsListener::Broadcast();
+}
+
+void GetPreferencesVersion(int& vMajor, int& vMinor, int& vMicro)
+{
+   vMajor = gVersionMajorKeyInit;
+   vMinor = gVersionMinorKeyInit;
+   vMicro = gVersionMicroKeyInit;
+}
+
+void SetPreferencesVersion(int vMajor, int vMinor, int vMicro)
+{
+   gVersionMajorKeyInit = vMajor;
+   gVersionMinorKeyInit = vMinor;
+   gVersionMicroKeyInit = vMicro;
 }
 
 void ResetPreferences()
 {
-   // Future:  make this a static registry table, so the settings objects
-   // don't need to be defined in this source code file to avoid dependency
-   // cycles
-   std::pair<BoolSetting &, bool> stickyBoolSettings[] {
-      {DefaultUpdatesCheckingFlag, 0},
-      // ... others?
-   };
-   for (auto &pair : stickyBoolSettings)
-      pair.second = pair.first.Read();
+   PreferencesResetHandlerRegistry::Get().BeginReset();
 
-   bool savedValue = DefaultUpdatesCheckingFlag.Read();
-   gPrefs->DeleteAll();
+   gPrefs->Clear();
 
-   for (auto &pair : stickyBoolSettings)
-      pair.first.Write(pair.second);
+   PreferencesResetHandlerRegistry::Get().EndReset();
 }
 
 void FinishPreferences()
 {
    if (gPrefs) {
-      wxConfigBase::Set(NULL);
       ugPrefs.reset();
-      gPrefs = NULL;
+      gPrefs = nullptr;
    }
 }
 
@@ -458,6 +492,13 @@ void EnumSettingBase::Migrate( wxString &value )
    }
 }
 
+void PreferencesResetHandler::Register(std::unique_ptr<PreferencesResetHandler> handler)
+{
+   PreferencesResetHandlerRegistry::Get().Register(std::move(handler));
+}
+
+PreferencesResetHandler::~PreferencesResetHandler() = default;
+
 bool EnumSettingBase::WriteInt( int code ) // you flush gPrefs afterward
 {
    auto index = FindInt( code );
@@ -500,7 +541,7 @@ void PreferenceInitializer::ReinitializeAll()
       (*pInitializer)();
 }
 
-wxConfigBase *SettingBase::GetConfig() const
+audacity::BasicSettings *SettingBase::GetConfig() const
 {
    return gPrefs;
 }

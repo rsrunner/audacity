@@ -1,7 +1,7 @@
 #[[
 A library, that allows sending error reports to a Sentry server
 using Exception and Message interfaces.
-]]#
+]]
 
 set( TARGET lib-sentry-reporting )
 set( TARGET_ROOT ${CMAKE_CURRENT_SOURCE_DIR} )
@@ -28,7 +28,7 @@ if(${_OPT}has_sentry_reporting)
         lib-string-utils # ToUtf8
         lib-uuid # UUIDs are required as an event identifier.
         rapidjson::rapidjson # Protocol is JSON based
-        wxwidgets::base # Required to retrieve the OS information
+        wxBase # Required to retrieve the OS information
     )
 
     set ( DEFINES

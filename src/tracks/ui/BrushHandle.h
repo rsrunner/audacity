@@ -21,7 +21,7 @@ class AudacityProject;
 class SelectionStateChanger;
 class SpectrumAnalyst;
 class Track;
-class TrackView;
+class ChannelView;
 class TrackList;
 class ViewInfo;
 class WaveTrack;
@@ -48,19 +48,21 @@ public:
       bool mCommitted = false;
    };
 
-   explicit BrushHandle
-      (std::shared_ptr<StateSaver> pStateSaver,
-       const std::shared_ptr<TrackView> &pTrackView,
-       const TrackList &trackList,
-       const TrackPanelMouseState &st, const ViewInfo &viewInfo,
-       const std::shared_ptr<SpectralData> &pSpectralData,
-       const ProjectSettings &pSettings);
+   explicit BrushHandle(
+      std::shared_ptr<StateSaver> pStateSaver,
+      const std::shared_ptr<ChannelView> &pChannelView,
+      const TrackList &trackList,
+      const TrackPanelMouseState &st, const ViewInfo &viewInfo,
+      const std::shared_ptr<SpectralData> &pSpectralData,
+      const ProjectSettings &pSettings);
 
    BrushHandle &operator=(const BrushHandle&) = default;
    
    virtual ~BrushHandle();
 
-   bool IsClicked() const;
+   std::shared_ptr<const Track> FindTrack() const override;
+
+   bool IsDragging() const override;
 
    void Enter(bool forward, AudacityProject *pProject) override;
 
@@ -88,14 +90,14 @@ private:
    std::shared_ptr<StateSaver> mpStateSaver;
    std::shared_ptr<SpectralData> mpSpectralData;
 
-   std::weak_ptr<Track> FindTrack();
+   std::shared_ptr<WaveChannel> FindChannel();
 
    // TrackPanelDrawable implementation
    void Draw(
       TrackPanelDrawingContext &context,
       const wxRect &rect, unsigned iPass ) override;
 
-   std::weak_ptr<TrackView> mpView;
+   std::weak_ptr<ChannelView> mpView;
    wxRect mRect{};
 
    // Example: For window size of 1024, with ratio 0.01

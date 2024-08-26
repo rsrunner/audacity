@@ -68,7 +68,7 @@ void GUIPrefs::GetRangeChoices(
    int *pDefaultRangeIndex
 )
 {
-   static const auto sCodes = {
+   static const wxArrayStringEx sCodes = {
       wxT("36") ,
       wxT("48") ,
       wxT("60") ,
@@ -177,8 +177,6 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
       S.TieCheckBox(XXO("Re&tain labels if selection snaps to a label"),
                     {wxT("/GUI/RetainLabels"),
                      false});
-      S.TieCheckBox(XXO("B&lend system and Audacity theme"),
-                     GUIBlendThemes);
 #ifndef __WXMAC__
       /* i18n-hint: RTL stands for 'Right to Left'  */
       S.TieCheckBox(XXO("Use mostly Left-to-Right layouts in RTL languages"),
@@ -192,18 +190,7 @@ void GUIPrefs::PopulateOrExchange(ShuttleGui & S)
 #endif
    }
    S.EndStatic();
-
-   S.StartStatic(XO("Timeline"));
-   {
-      S.TieCheckBox(XXO("Show Timeline Tooltips"),
-                    {wxT("/QuickPlay/ToolTips"),
-                     true});
-      S.TieCheckBox(XXO("Show Scrub Ruler"),
-                    {wxT("/QuickPlay/ScrubbingEnabled"),
-                     false});
-   }
-   S.EndStatic();
-
+   
    S.EndScroller();
 }
 
@@ -230,7 +217,6 @@ bool GUIPrefs::Commit()
    }
    AColor::ApplyUpdatedImages();
 
-   GUIBlendThemes.Invalidate();
    DecibelScaleCutoff.Invalidate();
 
    return true;
@@ -242,10 +228,10 @@ int ShowClippingPrefsID()
    return value;
 }
 
-int ShowTrackNameInWaveformPrefsID()
+BoolSetting& ShowRMSPref()
 {
-   static int value = wxNewId();
-   return value;
+   static BoolSetting pref { "/GUI/ShowRMS", false };
+   return pref;
 }
 
 namespace{

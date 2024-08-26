@@ -10,6 +10,7 @@
 **********************************************************************/
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <utility>
@@ -18,7 +19,9 @@
 
 #include <wx/string.h>
 
-namespace cloud::audiocom
+enum class AudiocomTrace;
+
+namespace audacity::cloud::audiocom
 {
 class ServiceConfig;
 class OAuthService;
@@ -28,7 +31,7 @@ struct CLOUD_AUDIOCOM_API UploadFailedPayload final
 {
    int32_t code {};
    int32_t status {};
-   
+
    std::string name;
    std::string message;
 
@@ -43,6 +46,10 @@ struct CLOUD_AUDIOCOM_API UploadSuccessfulPayload final
    std::string audioId;
    //! "Slug" to be used for shareable URL construction
    std::string audioSlug;
+   //! Upload token, if any
+   std::string uploadToken;
+   //! URL to the uploaded audio
+   std::string audioUrl;
 };
 
 //! Message that is sent when upload is finished.
@@ -67,7 +74,7 @@ struct CLOUD_AUDIOCOM_API UploadOperationCompleted final
       //! Upload failed for some other reason
       UploadFailed
    };
-   
+
    //! Upload result
    Result result;
 
@@ -92,7 +99,7 @@ public:
    //! Abort the upload, if running
    virtual void Abort() = 0;
    //! Abort the upload, if running,
-   //! notify audio.com that the uploaded file is no longer needed otherwise 
+   //! notify audio.com that the uploaded file is no longer needed otherwise
    virtual void DiscardResult() = 0;
 };
 
@@ -137,7 +144,8 @@ public:
    */
    UploadOperationHandle Upload(
       const wxString& fileName, const wxString& projectName, bool isPublic,
-      CompletedCallback completedCallback, ProgressCallback progressCallback);
+      CompletedCallback completedCallback, ProgressCallback progressCallback,
+      AudiocomTrace);
 
 private:
    const ServiceConfig& mServiceConfig;
@@ -145,4 +153,4 @@ private:
 };
 
 CLOUD_AUDIOCOM_API wxString GetUploadTempPath();
-} // namespace cloud::audiocom
+} // namespace audacity::cloud::audiocom

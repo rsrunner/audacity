@@ -15,6 +15,7 @@
 *//*******************************************************************/
 #include "Paulstretch.h"
 #include "EffectEditor.h"
+#include "EffectOutputTracks.h"
 #include "LoadEffects.h"
 
 #include <algorithm>
@@ -28,6 +29,8 @@
 #include "../widgets/valnum.h"
 #include "AudacityMessageBox.h"
 #include "Prefs.h"
+#include "SyncLock.h"
+#include "TimeWarper.h"
 
 #include "WaveTrack.h"
 
@@ -39,7 +42,7 @@ const EffectParameterMethods& EffectPaulstretch::Parameters() const
    return parameters;
 }
 
-/// \brief Class that helps EffectPaulStretch.  It does the FFTs and inner loop 
+/// \brief Class that helps EffectPaulStretch.  It does the FFTs and inner loop
 /// of the effect.
 class PaulStretch
 {
@@ -144,25 +147,49 @@ double EffectPaulstretch::CalcPreviewInputLength(
 
 bool EffectPaulstretch::Process(EffectInstance &, EffectSettings &)
 {
-   CopyInputTracks();
-   m_t1=mT1;
-   int count=0;
-   for( auto track : mOutputTracks->Selected< WaveTrack >() ) {
+   // Pass true because sync lock adjustment is needed
+   EffectOutputTracks outputs { *mTracks, GetType(), { { mT0, mT1 } }, true };
+   auto newT1 = mT1;
+   int count = 0;
+   // Process selected wave tracks first, to find the new t1 value
+   for (const auto track : outputs.Get().Selected<WaveTrack>()) {
       double trackStart = track->GetStartTime();
       double trackEnd = track->GetEndTime();
-      double t0 = mT0 < trackStart? trackStart: mT0;
-      double t1 = mT1 > trackEnd? trackEnd: mT1;
-
+      double t0 = mT0 < trackStart ? trackStart : mT0;
+      double t1 = mT1 > trackEnd ? trackEnd : mT1;
       if (t1 > t0) {
-         if (!ProcessOne(track, t0,t1,count))
-            return false;
+         auto tempTrack = track->EmptyCopy();
+         const auto channels = track->Channels();
+         auto iter = tempTrack->Channels().begin();
+         for (const auto pChannel : channels) {
+            if (!ProcessOne(*pChannel, **iter++, t0, t1, count++))
+               return false;
+         }
+         tempTrack->Flush();
+         newT1 = std::max(newT1, mT0 + tempTrack->GetEndTime());
+         PasteTimeWarper warper { t1, t0 + tempTrack->GetEndTime() };
+         constexpr auto preserve = false;
+         constexpr auto merge = true;
+         track->ClearAndPaste(t0, t1, *tempTrack, preserve, merge, &warper);
       }
-
-      count++;
+      else
+         count += track->NChannels();
    }
-   mT1=m_t1;
 
-   ReplaceProcessedTracks(true);
+   // Sync lock adjustment of other tracks
+   outputs.Get().Any().Visit(
+      [&](auto &&fallthrough){ return [&](WaveTrack &track) {
+         if (!track.IsSelected())
+            fallthrough();
+      }; },
+      [&](Track &track) {
+         if (SyncLock::IsSyncLockSelected(track))
+            track.SyncLockAdjust(mT1, newT1);
+      }
+   );
+   mT1 = newT1;
+
+   outputs.Commit();
 
    return true;
 }
@@ -239,35 +266,37 @@ size_t EffectPaulstretch::GetBufferSize(double rate) const
    return std::max<size_t>(stmp, 128);
 }
 
-bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int count)
+bool EffectPaulstretch::ProcessOne(const WaveChannel &track,
+   WaveChannel &outputTrack, double t0, double t1, int count)
 {
    const auto badAllocMessage =
       XO("Requested value exceeds memory capacity.");
 
-   const auto stretch_buf_size = GetBufferSize(track->GetRate());
+   const auto rate = track.GetTrack().GetRate();
+   const auto stretch_buf_size = GetBufferSize(rate);
    if (stretch_buf_size == 0) {
       EffectUIServices::DoMessageBox(*this, badAllocMessage);
-      return false;
+      return {};
    }
 
    double amount = this->mAmount;
 
-   auto start = track->TimeToLongSamples(t0);
-   auto end = track->TimeToLongSamples(t1);
+   auto start = track.TimeToLongSamples(t0);
+   auto end = track.TimeToLongSamples(t1);
    auto len = end - start;
 
    const auto minDuration = stretch_buf_size * 2 + 1;
    if (minDuration < stretch_buf_size) {
       // overflow!
       EffectUIServices::DoMessageBox(*this, badAllocMessage);
-      return false;
+      return {};
    }
 
    if (len < minDuration) {   //error because the selection is too short
 
       float maxTimeRes = log( len.as_double() ) / log(2.0);
       maxTimeRes = pow(2.0, floor(maxTimeRes) + 0.5);
-      maxTimeRes = maxTimeRes / track->GetRate();
+      maxTimeRes = maxTimeRes / rate;
 
       if (this->IsPreviewing()) {
          double defaultPreviewLen;
@@ -280,7 +309,7 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
                   "Try increasing the audio selection to at least %.1f seconds,\n"
                   "or reducing the 'Time Resolution' to less than %.1f seconds.")
                   .Format(
-                     (minDuration / track->GetRate()) + 0.05, // round up to 1/10 s.
+                     (minDuration / rate) + 0.05, // round up to 1/10 s.
                      floor(maxTimeRes * 10.0) / 10.0),
                wxOK | wxICON_EXCLAMATION );
          }
@@ -301,27 +330,24 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
                "Try increasing the audio selection to at least %.1f seconds,\n"
                "or reducing the 'Time Resolution' to less than %.1f seconds.")
                .Format(
-                  (minDuration / track->GetRate()) + 0.05, // round up to 1/10 s.
+                  (minDuration / rate) + 0.05, // round up to 1/10 s.
                   floor(maxTimeRes * 10.0) / 10.0),
             wxOK | wxICON_EXCLAMATION );
       }
 
-      return false;
+      return {};
    }
-
 
    auto dlen = len.as_double();
    double adjust_amount = dlen /
       (dlen - ((double)stretch_buf_size * 2.0));
    amount = 1.0 + (amount - 1.0) * adjust_amount;
 
-   auto outputTrack = track->EmptyCopy();
-
    try {
       // This encloses all the allocations of buffers, including those in
       // the constructor of the PaulStretch object
 
-      PaulStretch stretch(amount, stretch_buf_size, track->GetRate());
+      PaulStretch stretch(amount, stretch_buf_size, rate);
 
       auto nget = stretch.get_nsamples_for_fill();
 
@@ -338,7 +364,7 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
          decltype(len) s=0;
 
          while (s < len) {
-            track->GetFloats(bufferptr0, start + s, nget);
+            track.GetFloats(bufferptr0, start + s, nget);
             stretch.process(buffer0.get(), nget);
 
             if (first_time) {
@@ -348,7 +374,7 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
             s += nget;
 
             if (first_time){//blend the start of the selection
-               track->GetFloats(fade_track_smps.get(), start, fade_len);
+               track.GetFloats(fade_track_smps.get(), start, fade_len);
                first_time = false;
                for (size_t i = 0; i < fade_len; i++){
                   float fi = (float)i / (float)fade_len;
@@ -357,7 +383,7 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
                }
             }
             if (s >= len){//blend the end of the selection
-               track->GetFloats(fade_track_smps.get(), end - fade_len, fade_len);
+               track.GetFloats(fade_track_smps.get(), end - fade_len, fade_len);
                for (size_t i = 0; i < fade_len; i++){
                   float fi = (float)i / (float)fade_len;
                   auto i2 = bufsize / 2 - 1 - i;
@@ -367,7 +393,7 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
                }
             }
 
-            outputTrack->Append((samplePtr)stretch.out_buf.get(), floatSample, stretch.out_bufsize);
+            outputTrack.Append((samplePtr)stretch.out_buf.get(), floatSample, stretch.out_bufsize);
 
             nget = stretch.get_nsamples();
             if (TrackProgress(count,
@@ -379,20 +405,13 @@ bool EffectPaulstretch::ProcessOne(WaveTrack *track,double t0,double t1,int coun
          }
       }
 
-      if (!cancelled){
-         outputTrack->Flush();
-
-         track->Clear(t0,t1);
-         track->Paste(t0, outputTrack.get());
-         m_t1 = mT0 + outputTrack->GetEndTime();
-      }
-      
-      return !cancelled;
+      if (!cancelled)
+         return true;
    }
    catch ( const std::bad_alloc& ) {
       EffectUIServices::DoMessageBox(*this, badAllocMessage);
-      return false;
    }
+   return false;
 };
 
 /*************************************************************/

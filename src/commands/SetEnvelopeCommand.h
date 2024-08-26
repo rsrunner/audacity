@@ -34,7 +34,7 @@ public:
 
    // AudacityCommand overrides
    ManualPageID ManualPage() override {return L"Extra_Menu:_Scriptables_I#set_envelope";}
-   bool ApplyInner( const CommandContext & context, Track * t ) override;
+   bool ApplyInner(const CommandContext & context, Track &t) override;
 
 public:
    double mT;

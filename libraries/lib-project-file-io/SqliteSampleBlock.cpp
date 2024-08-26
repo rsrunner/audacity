@@ -15,14 +15,19 @@ Paul Licameli -- split from SampleBlock.cpp and SampleBlock.h
 #include "DBConnection.h"
 #include "ProjectFileIO.h"
 #include "SampleFormat.h"
+#include "AudioSegmentSampleView.h"
 #include "XMLTagHandler.h"
 
 #include "SampleBlock.h" // to inherit
 #include "UndoManager.h"
+#include "UndoTracks.h"
 #include "WaveTrack.h"
+#include "WaveTrackUtilities.h"
 
 #include "SentryHelper.h"
 #include <wx/log.h>
+
+#include <mutex>
 
 class SqliteSampleBlockFactory;
 
@@ -30,12 +35,18 @@ class SqliteSampleBlockFactory;
 class SqliteSampleBlock final : public SampleBlock
 {
 public:
+   BlockSampleView GetFloatSampleView(bool mayThrow) override;
 
+private:
+   std::weak_ptr<std::vector<float>> mCache;
+   std::mutex mCacheMutex;
+
+public:
    explicit SqliteSampleBlock(
       const std::shared_ptr<SqliteSampleBlockFactory> &pFactory);
    ~SqliteSampleBlock() override;
 
-   void CloseLock() override;
+   void CloseLock() noexcept override;
 
    void SetSamples(
       constSamplePtr src, size_t numsamples, sampleFormat srcformat);
@@ -52,7 +63,7 @@ public:
                        sampleFormat destformat,
                        size_t sampleoffset,
                        size_t numsamples) override;
-   sampleFormat GetSampleFormat() const;
+   sampleFormat GetSampleFormat() const override;
    size_t GetSampleCount() const override;
 
    bool GetSummary256(float *dest, size_t frameoffset, size_t numframes) override;
@@ -155,15 +166,23 @@ public:
       sampleFormat srcformat,
       const AttributesList &attrs) override;
 
+   SampleBlockPtr DoCreateFromId(
+      sampleFormat srcformat, SampleBlockID id) override;
+
+   SampleBlock::DeletionCallback GetSampleBlockDeletionCallback() const
+   {
+      return mSampleBlockDeletionCallback;
+   }
+
 private:
    void OnBeginPurge(size_t begin, size_t end);
    void OnEndPurge();
 
    friend SqliteSampleBlock;
-   
+
    AudacityProject &mProject;
    Observer::Subscription mUndoSubscription;
-   std::optional<SampleBlock::DeletionCallback::Scope> mScope;
+   SampleBlock::DeletionCallback mSampleBlockDeletionCallback;
    const std::shared_ptr<ConnectionPtr> mppConnection;
 
    // Track all blocks that this factory has created, but don't control
@@ -240,10 +259,6 @@ SampleBlockPtr SqliteSampleBlockFactory::DoCreateSilent(
 SampleBlockPtr SqliteSampleBlockFactory::DoCreateFromXML(
    sampleFormat srcformat, const AttributesList &attrs )
 {
-   std::shared_ptr<SampleBlock> sb;
-
-   int found = 0;
-
    // loop through attrs, which is a null-terminated list of attribute-value pairs
    for (auto pair : attrs)
    {
@@ -253,40 +268,66 @@ SampleBlockPtr SqliteSampleBlockFactory::DoCreateFromXML(
       long long nValue;
 
       if (attr == "blockid" && value.TryGet(nValue))
-      {
-         if (nValue <= 0) {
-            sb = DoCreateSilent( -nValue, floatSample );
-         }
-         else {
-            // First see if this block id was previously loaded
-            auto &wb = mAllBlocks[ nValue ];
-            auto pb = wb.lock();
-            if (pb)
-               // Reuse the block
-               sb = pb;
-            else {
-               // First sight of this id
-               auto ssb =
-                  std::make_shared<SqliteSampleBlock>(shared_from_this());
-               wb = ssb;
-               sb = ssb;
-               ssb->mSampleFormat = srcformat;
-               // This may throw database errors
-               // It initializes the rest of the fields
-               ssb->Load((SampleBlockID) nValue);
-            }
-         }
-         found++;
-      }
+         return DoCreateFromId(srcformat, nValue);
    }
 
-  // Were all attributes found?
-   if (found != 1)
+   return nullptr;
+}
+
+SampleBlockPtr SqliteSampleBlockFactory::DoCreateFromId(
+   sampleFormat srcformat, SampleBlockID id)
+{
+   if (id <= 0)
+      return DoCreateSilent(-id, floatSample);
+
+   // First see if this block id was previously loaded
+   auto& wb = mAllBlocks[id];
+
+   if (auto block = wb.lock())
+      return block;
+
+   // First sight of this id
+   auto ssb           = std::make_shared<SqliteSampleBlock>(shared_from_this());
+   wb                 = ssb;
+   ssb->mSampleFormat = srcformat;
+   // This may throw database errors
+   // It initializes the rest of the fields
+   ssb->Load(static_cast<SampleBlockID>(id));
+
+   return ssb;
+}
+
+BlockSampleView SqliteSampleBlock::GetFloatSampleView(bool mayThrow)
+{
+   assert(mSampleCount > 0);
+
+   // Double-checked locking.
+   // `weak_ptr::lock()` guarantees atomicity, which is important to make this
+   // work without races.
+   auto cache = mCache.lock();
+   if (cache)
+      return cache;
+   std::lock_guard<std::mutex> lock(mCacheMutex);
+   cache = mCache.lock();
+   if (cache)
+      return cache;
+
+   const auto newCache =
+      std::make_shared<std::vector<float>>(mSampleCount);
+   try {
+      const auto cachedSize = DoGetSamples(
+         reinterpret_cast<samplePtr>(newCache->data()), floatSample, 0,
+         mSampleCount);
+      assert(cachedSize == mSampleCount);
+   }
+   catch (...)
    {
-      return nullptr;
+      if (mayThrow)
+         std::rethrow_exception(std::current_exception());
+      std::fill(newCache->begin(), newCache->end(), 0.f);
    }
-
-   return sb;
+   mCache = newCache;
+   return newCache;
 }
 
 SqliteSampleBlock::SqliteSampleBlock(
@@ -304,7 +345,12 @@ SqliteSampleBlock::SqliteSampleBlock(
 
 SqliteSampleBlock::~SqliteSampleBlock()
 {
-   DeletionCallback::Call(*this);
+   if (
+      const auto cb = mpFactory ? mpFactory->GetSampleBlockDeletionCallback() :
+                                  SampleBlock::DeletionCallback {})
+   {
+      cb(*this);
+   }
 
    if (IsSilent()) {
       // The block object was constructed but failed to Load() or Commit().
@@ -348,7 +394,7 @@ DBConnection *SqliteSampleBlock::Conn() const
    return pConnection.get();
 }
 
-void SqliteSampleBlock::CloseLock()
+void SqliteSampleBlock::CloseLock() noexcept
 {
    mLocked = true;
 }
@@ -578,7 +624,7 @@ size_t SqliteSampleBlock::GetBlob(void *dest,
       // Just showing the user a simple message, not the library error too
       // which isn't internationalized
       // Actually this can lead to 'Could not read from file' error message
-      // but it can also lead to no error message at all and a flat line, 
+      // but it can also lead to no error message at all and a flat line,
       // depending on where GetBlob is called from.
       // The latter can happen when repainting the screen.
       // That possibly happens on a very slow machine.  Possibly that's the
@@ -602,13 +648,13 @@ size_t SqliteSampleBlock::GetBlob(void *dest,
    /*
     Will dithering happen in CopySamples?  Answering this as of 3.0.3 by
     examining all uses.
-    
+
     As this function is called from GetSummary, no, because destination format
     is float.
 
     There is only one other call to this function, in DoGetSamples.  At one
     call to that function, in DoGetMinMaxRMS, again format is float always.
-    
+
     There is only one other call to DoGetSamples, in SampleBlock::GetSamples().
     In one call to that function, in WaveformView.cpp, again format is float.
 
@@ -756,7 +802,7 @@ void SqliteSampleBlock::Commit(Sizes sizes)
 
       wxASSERT_MSG(false, wxT("Binding failed...bug!!!"));
    }
- 
+
    // Execute the statement
    rc = sqlite3_step(stmt);
    if (rc != SQLITE_DONE)
@@ -782,6 +828,10 @@ void SqliteSampleBlock::Commit(Sizes sizes)
    mSamples.reset();
    mSummary256.reset();
    mSummary64k.reset();
+   {
+      std::lock_guard<std::mutex> lock(mCacheMutex);
+      mCache.reset();
+   }
 
    // Clear statement bindings and rewind statement
    sqlite3_clear_bindings(stmt);
@@ -877,7 +927,7 @@ void SqliteSampleBlock::CalcSummary(Sizes sizes)
          samplebuffer.get(), mSampleCount);
       samples = samplebuffer.get();
    }
-   
+
    mSummary256.reinit(mSummary256Bytes);
    mSummary64k.reinit(mSummary64kBytes);
 
@@ -1016,12 +1066,14 @@ void SqliteSampleBlock::CalcSummary(Sizes sizes)
 static size_t EstimateRemovedBlocks(
    AudacityProject &project, size_t begin, size_t end)
 {
+   using namespace WaveTrackUtilities;
    auto &manager = UndoManager::Get(project);
 
    // Collect ids that survive
+   using namespace WaveTrackUtilities;
    SampleBlockIDSet wontDelete;
    auto f = [&](const UndoStackElem &elem) {
-      if (auto pTracks = TrackList::FindUndoTracks(elem))
+      if (auto pTracks = UndoTracks::Find(elem))
          InspectBlocks(*pTracks, {}, &wontDelete);
    };
    manager.VisitStates(f, 0, begin);
@@ -1033,10 +1085,10 @@ static size_t EstimateRemovedBlocks(
    // Collect ids that won't survive (and are not negative pseudo ids)
    SampleBlockIDSet seen, mayDelete;
    manager.VisitStates([&](const UndoStackElem &elem) {
-      if (auto pTracks = TrackList::FindUndoTracks(elem)) {
+      if (auto pTracks = UndoTracks::Find(elem)) {
          InspectBlocks(*pTracks,
-            [&](const SampleBlock &block){
-               auto id = block.GetBlockID();
+            [&](SampleBlockConstPtr pBlock){
+               auto id = pBlock->GetBlockID();
                if (id > 0 && !wontDelete.count(id))
                   mayDelete.insert(id);
             },
@@ -1051,7 +1103,7 @@ void SqliteSampleBlockFactory::OnBeginPurge(size_t begin, size_t end)
 {
    // Install a callback function that updates a progress indicator
    using namespace BasicUI;
-   
+
    //Avoid showing dialog to the user if purge operation
    //does not take much time, as it will resign focus from main window
    //but dialog itself may not be presented to the user at all.
@@ -1062,7 +1114,7 @@ void SqliteSampleBlockFactory::OnBeginPurge(size_t begin, size_t end)
        return;
    auto purgeStartTime = std::chrono::system_clock::now();
    std::shared_ptr<ProgressDialog> progressDialog;
-   mScope.emplace([=, nDeleted = 0](auto&) mutable {
+   mSampleBlockDeletionCallback = [=, nDeleted = 0](auto&) mutable {
       ++nDeleted;
       if(!progressDialog)
       {
@@ -1073,12 +1125,12 @@ void SqliteSampleBlockFactory::OnBeginPurge(size_t begin, size_t end)
       }
       else
          progressDialog->Poll(nDeleted, nToDelete);
-   });
+   };
 }
 
 void SqliteSampleBlockFactory::OnEndPurge()
 {
-   mScope.reset();
+   mSampleBlockDeletionCallback = {};
 }
 
 // Inject our database implementation at startup

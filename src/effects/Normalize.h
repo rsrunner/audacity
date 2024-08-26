@@ -13,16 +13,21 @@
 #define __AUDACITY_EFFECT_NORMALIZE__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "Biquad.h"
 #include "ShuttleAutomation.h"
 #include <wx/weakref.h>
+#include <functional>
 
 class wxCheckBox;
 class wxStaticText;
 class wxTextCtrl;
 class ShuttleGui;
+class WaveChannel;
 
-class EffectNormalize final : public StatefulEffect
+class EffectNormalize final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EffectNormalize *
@@ -55,13 +60,17 @@ public:
 private:
    // EffectNormalize implementation
 
-   bool ProcessOne(
-      WaveTrack * t, const TranslatableString &msg, double& progress, float offset);
-   bool AnalyseTrack(const WaveTrack * track, const TranslatableString &msg,
-                     double &progress, float &offset, float &extent);
-   bool AnalyseTrackData(const WaveTrack * track, const TranslatableString &msg, double &progress,
-                     float &offset);
-   void AnalyseDataDC(float *buffer, size_t len);
+   bool ProcessOne(WaveChannel &track,
+      const TranslatableString &msg, double& progress, float offset);
+   using ProgressReport = std::function<bool(double fraction)>;
+   static bool AnalyseTrack(const WaveChannel &track,
+      const ProgressReport &report,
+      bool gain, bool dc, double curT0, double curT1,
+      float &offset, float &extent);
+   static bool AnalyseTrackData(const WaveChannel &track,
+      const ProgressReport &report, double curT0, double curT1,
+      float &offset);
+   static double AnalyseDataDC(float *buffer, size_t len, double sum);
    void ProcessData(float *buffer, size_t len, float offset);
 
    void OnUpdateUI(wxCommandEvent & evt);
@@ -78,7 +87,6 @@ private:
    double mCurT0;
    double mCurT1;
    float  mMult;
-   double mSum;
 
    wxCheckBox *mGainCheckBox;
    wxCheckBox *mDCCheckBox;
@@ -95,8 +103,8 @@ static constexpr EffectParameter PeakLevel{ &EffectNormalize::mPeakLevel,
    L"PeakLevel",           -1.0,    -145.0,  0.0,  1  };
 static constexpr EffectParameter RemoveDC{ &EffectNormalize::mDC,
    L"RemoveDcOffset",      true,    false,   true, 1  };
-static constexpr EffectParameter ApplyGain{ &EffectNormalize::mGain,
-   L"ApplyGain",           true,    false,   true, 1  };
+static constexpr EffectParameter ApplyVolume{ &EffectNormalize::mGain,
+   L"ApplyVolume",           true,    false,   true, 1  };
 static constexpr EffectParameter StereoInd{ &EffectNormalize::mStereoInd,
    L"StereoIndependent",   false,   false,   true, 1  };
 };

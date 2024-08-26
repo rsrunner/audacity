@@ -18,16 +18,21 @@
 #include <wx/weakref.h>
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include "Biquad.h"
-#include "EBUR128.h"
 #include "ShuttleAutomation.h"
 #include "Track.h"
 
 class wxChoice;
 class wxSimplebook;
+class EBUR128;
 class ShuttleGui;
+class WaveChannel;
+using Floats = ArrayOf<float>;
 
-class EffectLoudness final : public StatefulEffect
+class EffectLoudness final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    enum kNormalizeTargets
@@ -66,16 +71,18 @@ public:
 private:
    // EffectLoudness implementation
 
-   void AllocBuffers();
+   void AllocBuffers(TrackList &outputs);
    void FreeBuffers();
-   bool GetTrackRMS(WaveTrack* track, float& rms);
-   bool ProcessOne(TrackIterRange<WaveTrack> range, bool analyse);
-   void LoadBufferBlock(TrackIterRange<WaveTrack> range,
-                        sampleCount pos, size_t len);
-   bool AnalyseBufferBlock();
-   bool ProcessBufferBlock();
-   void StoreBufferBlock(TrackIterRange<WaveTrack> range,
-                         sampleCount pos, size_t len);
+   static bool GetTrackRMS(WaveChannel &track,
+      double curT0, double curT1, float &rms);
+   [[nodiscard]] bool ProcessOne(WaveChannel &track, size_t nChannels,
+      double curT0, double curT1, float mult, EBUR128 *pLoudnessProcessor);
+   void LoadBufferBlock(WaveChannel &track, size_t nChannels,
+      sampleCount pos, size_t len);
+   bool AnalyseBufferBlock(EBUR128 &loudnessProcessor);
+   bool ProcessBufferBlock(float mult);
+   [[nodiscard]] bool StoreBufferBlock(WaveChannel &track, size_t nChannels,
+      sampleCount pos, size_t len);
 
    bool UpdateProgress();
    void OnChoice(wxCommandEvent & evt);
@@ -91,18 +98,11 @@ private:
    bool   mDualMono;
    int    mNormalizeTo;
 
-   double mCurT0;
-   double mCurT1;
    double mProgressVal;
    int    mSteps;
    TranslatableString mProgressMsg;
    double mTrackLen;
    double mCurRate;
-
-   float  mMult;
-   float  mRatio;
-   float  mRMS[2];
-   std::unique_ptr<EBUR128> mLoudnessProcessor;
 
    wxSimplebook *mBook;
    wxChoice *mChoice;

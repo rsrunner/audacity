@@ -70,6 +70,11 @@ LabelTextHandle::~LabelTextHandle()
 {
 }
 
+std::shared_ptr<const Track> LabelTextHandle::FindTrack() const
+{
+   return mpLT.lock();
+}
+
 void LabelTextHandle::HandleTextClick(AudacityProject &project, const wxMouseEvent & evt)
 {
    auto pTrack = mpLT.lock();

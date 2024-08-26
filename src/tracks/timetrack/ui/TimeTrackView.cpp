@@ -19,6 +19,7 @@ Paul Licameli split from TrackPanel.cpp
 #include "Envelope.h"
 #include "../../../EnvelopeEditor.h"
 #include "../../../HitTestResult.h"
+#include "PendingTracks.h"
 #include "Theme.h"
 #include "../../../TrackArtist.h"
 #include "../../../TrackPanelDrawingContext.h"
@@ -34,8 +35,8 @@ Paul Licameli split from TrackPanel.cpp
 
 using Doubles = ArrayOf<double>;
 
-TimeTrackView::TimeTrackView(const std::shared_ptr<Track> &pTrack)
-   : CommonTrackView{ pTrack }
+TimeTrackView::TimeTrackView(const std::shared_ptr<Channel> &pChannel)
+   : CommonChannelView{ pChannel }
 {
 }
 
@@ -48,25 +49,25 @@ std::vector<UIHandlePtr> TimeTrackView::DetailedHitTest
  const AudacityProject *pProject, int, bool)
 {
    std::vector<UIHandlePtr> results;
-   auto result = EnvelopeHandle::TimeTrackHitTest
-      ( mEnvelopeHandle, st.state, st.rect, pProject,
-        std::static_pointer_cast< TimeTrack >( FindTrack() ) );
+   auto result = EnvelopeHandle::TimeTrackHitTest(
+      mEnvelopeHandle, st.state, st.rect, pProject,
+      FindChannel<TimeTrack>());
    if (result)
       results.push_back(result);
    return results;
 }
 
-using DoGetTimeTrackView = DoGetView::Override< TimeTrack >;
+using DoGetTimeTrackView = DoGetView::Override<TimeTrack>;
 DEFINE_ATTACHED_VIRTUAL_OVERRIDE(DoGetTimeTrackView) {
-   return [](TimeTrack &track) {
-      return std::make_shared<TimeTrackView>(track.SharedPointer());
+   return [](TimeTrack &track, size_t) {
+      return std::make_shared<TimeTrackView>(track.SharedPointer<TimeTrack>());
    };
 }
 
-std::shared_ptr<TrackVRulerControls> TimeTrackView::DoGetVRulerControls()
+std::shared_ptr<ChannelVRulerControls> TimeTrackView::DoGetVRulerControls()
 {
    return
-      std::make_shared<TimeTrackVRulerControls>( shared_from_this() );
+      std::make_shared<TimeTrackVRulerControls>(shared_from_this());
 }
 
 namespace {
@@ -81,7 +82,7 @@ void DrawHorzRulerAndCurve
    bool highlight = false;
 #ifdef EXPERIMENTAL_TRACK_PANEL_HIGHLIGHTING
    auto target = dynamic_cast<EnvelopeHandle*>(context.target.get());
-   highlight = target && target->GetEnvelope() == this->GetEnvelope();
+   highlight = target && target->GetEnvelope() == track.GetEnvelope();
 #endif
    
    double min = zoomInfo.PositionToTime(0);
@@ -107,8 +108,8 @@ void DrawHorzRulerAndCurve
    ruler.Draw(dc, track.GetEnvelope());
    
    Doubles envValues{ size_t(mid.width) };
-   CommonTrackView::GetEnvelopeValues( *track.GetEnvelope(),
-    0, 0, envValues.get(), mid.width, 0, zoomInfo );
+   CommonChannelView::GetEnvelopeValues(*track.GetEnvelope(),
+      0, 0, envValues.get(), mid.width, 0, zoomInfo);
    
    wxPen &pen = highlight ? AColor::uglyPen : AColor::envelopePen;
    dc.SetPen( pen );
@@ -158,8 +159,13 @@ void TimeTrackView::Draw(
    const wxRect &rect, unsigned iPass )
 {
    if ( iPass == TrackArtist::PassTracks ) {
-      const auto pTrack = FindTrack();
-      const auto pList = pTrack->GetOwner();
+      const auto artist = TrackArtist::Get(context);
+      const auto &pendingTracks = *artist->pPendingTracks;
+      const auto pChannel = FindChannel();
+      if (!pChannel)
+         return;
+      const auto pList =
+         static_cast<const TimeTrack*>(pChannel.get())->GetOwner();
       if (!pList)
          // Track isn't owned by a list.  Can't proceed!
          return;
@@ -182,9 +188,9 @@ void TimeTrackView::Draw(
       Ruler ruler{ updater, TimeFormat::Instance() };
       ruler.SetLabelEdges(false);
 
-      const auto tt = std::static_pointer_cast<const TimeTrack>(
-         pTrack->SubstitutePendingChangedTrack());
-      DrawTimeTrack(context, *tt, ruler, rect);
+      const auto &tt = static_cast<const TimeTrack&>(
+         pendingTracks.SubstitutePendingChangedChannel(*pChannel));
+      DrawTimeTrack(context, tt, ruler, rect);
    }
-   CommonTrackView::Draw( context, rect, iPass );
+   CommonChannelView::Draw(context, rect, iPass);
 }

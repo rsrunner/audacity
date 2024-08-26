@@ -38,9 +38,9 @@ enum class PlayMode : int {
    cutPreviewPlay
 };
 
-struct TransportTracks;
+struct TransportSequences;
 
-enum StatusBarField : int;
+using StatusBarField = Identifier;
 enum class ProjectFileIOMessage : int;
 
 //! Notification, after recording has stopped, when dropouts have been detected
@@ -67,7 +67,7 @@ public:
    static ProjectAudioManager &Get( AudacityProject &project );
    static const ProjectAudioManager &Get( const AudacityProject &project );
 
-   // Find suitable tracks to record into, or return an empty array.
+   //! Find suitable tracks to record into, or return an empty array.
    static WritableSampleTrackArray ChooseExistingRecordingTracks(
       AudacityProject &proj, bool selectedOnly,
       double targetRate = RATE_NOT_SELECTED);
@@ -75,8 +75,8 @@ public:
    static bool UseDuplex();
 
    explicit ProjectAudioManager( AudacityProject &project );
-   ProjectAudioManager( const ProjectAudioManager & ) PROHIBITED;
-   ProjectAudioManager &operator=( const ProjectAudioManager & ) PROHIBITED;
+   ProjectAudioManager( const ProjectAudioManager & ) = delete;
+   ProjectAudioManager &operator=( const ProjectAudioManager & ) = delete;
    ~ProjectAudioManager() override;
 
    bool IsTimerRecordCancelled() { return mTimerRecordCanceled; }
@@ -105,7 +105,8 @@ public:
    void OnRecord(bool altAppearance);
 
    bool DoRecord(AudacityProject &project,
-      const TransportTracks &transportTracks, // If captureTracks is empty, then tracks are created
+      //! If captureSequences is empty, then tracks are created
+      const TransportSequences &transportSequences,
       double t0, double t1,
       bool altAppearance,
       const AudioIOStartStreamOptions &options);
@@ -151,13 +152,13 @@ private:
    void OnAudioIORate(int rate) override;
    void OnAudioIOStartRecording() override;
    void OnAudioIOStopRecording() override;
-   void OnAudioIONewBlocks(const WritableSampleTrackArray *tracks) override;
+   void OnAudioIONewBlocks() override;
    void OnCommitRecording() override;
    void OnSoundActivationThreshold() override;
 
    void OnCheckpointFailure(ProjectFileIOMessage);
 
-   Observer::Subscription mCheckpointFailureSubcription;
+   Observer::Subscription mCheckpointFailureSubscription;
    AudacityProject &mProject;
 
    PlayMode mLastPlayMode{ PlayMode::normalPlay };
@@ -186,13 +187,13 @@ struct PropertiesOfSelected
 {
    bool allSameRate{ false };
    int rateOfSelected{ RATE_NOT_SELECTED };
-   int numberOfSelected{ 0 };
+   bool anySelected{ false };
 };
 
 AUDACITY_DLL_API
 PropertiesOfSelected GetPropertiesOfSelected(const AudacityProject &proj);
 
-#include "commands/CommandFlag.h"
+#include "CommandFlag.h"
 
 extern AUDACITY_DLL_API const ReservedCommandFlag
    &CanStopAudioStreamFlag();

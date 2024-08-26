@@ -46,22 +46,19 @@
 
 #include "AllThemeResources.h"
 #include "ImageManipulation.h"
-#include "../Menus.h"
 #include "Prefs.h"
 #include "Project.h"
 #include "UndoManager.h"
 #include "../widgets/AButton.h"
 
-#include "../commands/CommandContext.h"
-#include "../commands/CommandManager.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "../commands/CommandDispatch.h"
 
 enum {
    ETBZoomInID,
    ETBZoomOutID,
-#ifdef EXPERIMENTAL_ZOOM_TOGGLE_BUTTON
    ETBZoomToggleID,
-#endif
 
    ETBZoomSelID,
    ETBZoomFitID,
@@ -91,9 +88,7 @@ constexpr int first_ETB_ID = 11300;
 static const ToolBarButtons::ButtonList EditToolbarButtonList = {
    { ETBZoomInID,   wxT("ZoomIn"),      XO("Zoom In")  },
    { ETBZoomOutID,  wxT("ZoomOut"),     XO("Zoom Out")  },
-#ifdef EXPERIMENTAL_ZOOM_TOGGLE_BUTTON
    { ETBZoomToggleID,   wxT("ZoomToggle"),      XO("Zoom Toggle")  },
-#endif
    { ETBZoomSelID,  wxT("ZoomSel"),     XO("Fit selection to width")  },
    { ETBZoomFitID,  wxT("FitInWindow"), XO("Fit project to width")  },
 
@@ -171,7 +166,8 @@ void EditToolBar::Populate()
    SetBackgroundColour( theTheme.Colour( clrMedium  ) );
    MakeButtonBackgroundsSmall();
 
-   Add(mToolSizer = safenew wxGridSizer(2, 5, 1, 1));
+   Add(mToolSizer = safenew wxGridSizer(2, 5, toolbarSpacing, toolbarSpacing),
+      0, wxALIGN_CENTRE | wxALL, toolbarSpacing);
 
    /* Buttons */
    // Tooltips match menu entries.
@@ -184,11 +180,8 @@ void EditToolBar::Populate()
       XO("Zoom to Selection"));
    AddButton(bmpZoomFit, bmpZoomFit, bmpZoomFitDisabled, ETBZoomFitID,
       XO("Fit to Width"));
-
-#ifdef EXPERIMENTAL_ZOOM_TOGGLE_BUTTON
    AddButton(bmpZoomToggle, bmpZoomToggle, bmpZoomToggleDisabled, ETBZoomToggleID,
       XO("Zoom Toggle"));
-#endif
 
    // Tooltips slightly more verbose than the menu entries are.
    AddButton(bmpTrim, bmpTrim, bmpTrimDisabled, ETBTrimID,
@@ -210,9 +203,7 @@ void EditToolBar::Populate()
 
    mButtons.SetEnabled(ETBZoomInID, false);
    mButtons.SetEnabled(ETBZoomOutID, false);
-#ifdef EXPERIMENTAL_ZOOM_TOGGLE_BUTTON
    mButtons.SetEnabled(ETBZoomToggleID, false);
-#endif
 
    mButtons.SetEnabled(ETBZoomSelID, false);
    mButtons.SetEnabled(ETBZoomFitID, false);

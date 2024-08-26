@@ -33,7 +33,7 @@ struct RecordingSchedule {
    PRCrossfadeData mCrossfadeData;
 
    // These are initialized by the main thread, then updated
-   // only by the thread calling TrackBufferExchange:
+   // only by the thread calling SequenceBufferExchange:
    double mPosition{};
    bool mLatencyCorrected{};
 
@@ -99,20 +99,20 @@ public:
    //! Whether repositioning commands are allowed during playback
    virtual bool AllowSeek( PlaybackSchedule &schedule );
 
-   //! Returns true if schedule.GetTrackTime() has reached the end of playback
+   //! Returns true if schedule.GetSequenceTime() has reached the end of playback
    virtual bool Done( PlaybackSchedule &schedule,
       unsigned long outputFrames //!< how many playback frames were taken from RingBuffers
    );
 
    //! Called when the play head needs to jump a certain distance
-   /*! @param offset signed amount requested to be added to schedule::GetTrackTime()
+   /*! @param offset signed amount requested to be added to schedule::GetSequenceTime()
       @return the new value that will be set as the schedule's track time
     */
-   virtual double OffsetTrackTime( PlaybackSchedule &schedule, double offset );
+   virtual double OffsetSequenceTime( PlaybackSchedule &schedule, double offset );
 
-   //! @section Called by the AudioIO::TrackBufferExchange thread
+   //! @section Called by the AudioIO::SequenceBufferExchange thread
 
-   //! How long to wait between calls to AudioIO::TrackBufferExchange
+   //! How long to wait between calls to AudioIO::SequenceBufferExchange
    virtual std::chrono::milliseconds
       SleepInterval( PlaybackSchedule &schedule );
 
@@ -188,8 +188,7 @@ struct AUDIO_IO_API PlaybackSchedule {
    
    const BoundedEnvelope *mEnvelope;
 
-   //! A circular buffer
-   /*
+   /*!
     Holds track time values corresponding to every nth sample in the
     playback buffers, for the large n == TimeQueueGrainSize.
 
@@ -198,9 +197,8 @@ struct AUDIO_IO_API PlaybackSchedule {
     PortAudio thread that drains the RingBuffers.  The atomics in the
     RingBuffer implement lock-free synchronization.
 
-    This other structure relies on the RingBuffer's synchronization, and adds
-    other information to the stream of samples:  which track times they
-    correspond to.
+    This other structure adds other information to the stream of samples:
+    which track times they correspond to.
 
     The consumer thread uses that information, and also makes known to the main
     thread, what the last consumed track time is.  The main thread can use that
@@ -209,12 +207,17 @@ struct AUDIO_IO_API PlaybackSchedule {
    class AUDIO_IO_API TimeQueue {
    public:
 
+      TimeQueue();
+      TimeQueue(const TimeQueue&) = delete;
+      TimeQueue& operator=(const TimeQueue&) = delete;
+
+
       //! @section called by main thread
 
       void Clear();
-      void Resize(size_t size);
+      void Init(size_t size);
 
-      //! @section Called by the AudioIO::TrackBufferExchange thread
+      //! @section Called by the AudioIO::SequenceBufferExchange thread
 
       //! Enqueue track time value advanced by the slice according to `schedule`'s PlaybackPolicy
       void Producer( PlaybackSchedule &schedule, PlaybackSlice slice );
@@ -236,20 +239,49 @@ struct AUDIO_IO_API PlaybackSchedule {
       void Prime( double time );
 
    private:
-      struct Record {
-         double timeValue;
-         // More fields to come
-      };
-      using Records = std::vector<Record>;
-      Records mData;
       double mLastTime {};
-      struct Cursor {
-         size_t mIndex {};
-         size_t mRemainder {};
+      
+      ///Wraps circular buffer that stores time points bound to a specific samples
+      ///at constant rate (TimeQueueGrainSize). Ideally there should be
+      ///only one instance with buffer of size enough to not overflow. But in case of large
+      ///latencies producing thread may try advance far ahead of consumer and that would require
+      ///a buffer extension.
+      struct Node final
+      {
+         struct Record final {
+            double timeValue;
+            // More fields to come
+         };
+
+         std::vector<Record> records;
+         std::atomic<int> head { 0 };
+         std::atomic<int> tail { 0 };
+         ///@brief Points to a node which should be used instead of current one
+         ///when it becomes exhausted by a consumer thread
+         std::atomic<Node*> next{};
+
+         ///@brief Flag is set when used by at least consumer thread.
+         ///Once node is not used by neither it's flag is cleared making it available
+         ///for recycling.
+         std::atomic_flag active { ATOMIC_FLAG_INIT };
+
+         ///@brief Number of samples advanced from the beginning of the current head. Accessed only by consumer thread.
+         size_t offset { 0 };
+         ///@brief Number of samples counted by producer thread at the current tail. Accessed only by producer thread.
+         size_t written { 0 };
+          
       };
-      //! Aligned to avoid false sharing
-      NonInterfering<Cursor> mHead, mTail;
+
+      Node* mConsumerNode {};
+      Node* mProducerNode {};
+
+      ///When node's buffer becomes full consumer will pick up a new one from the
+      ///pool, which also will be linked to the previous node, so that producer could
+      ///pick it up too.
+      std::vector<std::unique_ptr<Node>> mNodePool;
+
    } mTimeQueue;
+
 
    PlaybackPolicy &GetPolicy();
    const PlaybackPolicy &GetPolicy() const;
@@ -289,12 +321,12 @@ struct AUDIO_IO_API PlaybackSchedule {
     *
     * Returns a time in seconds.
     */
-   double GetTrackTime() const
+   double GetSequenceTime() const
    { return mTime.load(std::memory_order_relaxed); }
 
    /** \brief Set current track time value, unadjusted
     */
-   void SetTrackTime( double time )
+   void SetSequenceTime( double time )
    { mTime.store(time, std::memory_order_relaxed); }
 
    void ResetMode() {

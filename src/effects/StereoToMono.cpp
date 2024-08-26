@@ -15,6 +15,7 @@
 
 
 #include "StereoToMono.h"
+#include "EffectOutputTracks.h"
 #include "LoadEffects.h"
 
 #include "Mix.h"
@@ -78,147 +79,95 @@ bool EffectStereoToMono::Process(EffectInstance &, EffectSettings &)
 {
    // Do not use mWaveTracks here.  We will possibly DELETE tracks,
    // so we must use the "real" tracklist.
-   this->CopyInputTracks(); // Set up mOutputTracks.
+   EffectOutputTracks outputs {
+      *mTracks,
+      GetType(),
+      // This effect ignores mT0 and mT1 but always mixes the entire tracks.
+      { { mTracks->GetStartTime(), mTracks->GetEndTime() } }
+   };
    bool bGoodResult = true;
 
    // Determine the total time (in samples) used by all of the target tracks
+   // only for progress dialog
    sampleCount totalTime = 0;
-   
-   auto trackRange = mOutputTracks->SelectedLeaders< WaveTrack >();
-   while (trackRange.first != trackRange.second)
-   {
-      auto left = *trackRange.first;
-      auto channels = TrackList::Channels(left);
-      if (channels.size() > 1)
-      {
-         auto right = *channels.rbegin();
-         auto leftRate = left->GetRate();
-         auto rightRate = right->GetRate();
 
-         if (leftRate != rightRate)
-         {
-            if (leftRate != mProjectRate)
-            {
-               mProgress->SetMessage(XO("Resampling left channel"));
-               left->Resample(mProjectRate, mProgress);
-               leftRate = mProjectRate;
-            }
-            if (rightRate != mProjectRate)
-            {
-               mProgress->SetMessage(XO("Resampling right channel"));
-               right->Resample(mProjectRate, mProgress);
-               rightRate = mProjectRate;
-            }
-         }
-         {
-            auto start = wxMin(left->TimeToLongSamples(left->GetStartTime()),
-                               right->TimeToLongSamples(right->GetStartTime()));
-            auto end = wxMax(left->TimeToLongSamples(left->GetEndTime()),
-                               right->TimeToLongSamples(right->GetEndTime()));
-
-            totalTime += (end - start);
-         }
+   auto trackRange = outputs.Get().Selected<WaveTrack>();
+   for (const auto left : trackRange) {
+      if (left->Channels().size() > 1) {
+         auto start = left->TimeToLongSamples(left->GetStartTime());
+         auto end = left->TimeToLongSamples(left->GetEndTime());
+         totalTime += (end - start);
       }
-
-      ++trackRange.first;
    }
 
    // Process each stereo track
    sampleCount curTime = 0;
-   bool refreshIter = false;
 
    mProgress->SetMessage(XO("Mixing down to mono"));
 
-   trackRange = mOutputTracks->SelectedLeaders< WaveTrack >();
-   while (trackRange.first != trackRange.second)
-   {
-      auto left = *trackRange.first;
-      auto channels = TrackList::Channels(left);
-      if (channels.size() > 1)
-      {
-         auto right = *channels.rbegin();
-
-         bGoodResult = ProcessOne(curTime, totalTime, left, right);
-         if (!bGoodResult)
-         {
+   for (const auto track : trackRange) {
+      if (track->Channels().size() > 1) {
+         if (!ProcessOne(outputs.Get(), curTime, totalTime, *track))
             break;
-         }
-
-         // The right channel has been deleted, so we must restart from the beginning
-         refreshIter = true;
-      }
-
-      if (refreshIter)
-      {
-         trackRange = mOutputTracks->SelectedLeaders< WaveTrack >();
-         refreshIter = false;
-      }
-      else
-      {
-         ++trackRange.first;
       }
    }
 
-   this->ReplaceProcessedTracks(bGoodResult);
+   if (bGoodResult)
+      outputs.Commit();
+
    return bGoodResult;
 }
 
-bool EffectStereoToMono::ProcessOne(sampleCount & curTime, sampleCount totalTime, WaveTrack *left, WaveTrack *right)
+bool EffectStereoToMono::ProcessOne(TrackList &outputs,
+   sampleCount & curTime, sampleCount totalTime, WaveTrack &track)
 {
-   auto idealBlockLen = left->GetMaxBlockSize() * 2;
+   auto idealBlockLen = track.GetMaxBlockSize() * 2;
    bool bResult = true;
    sampleCount processed = 0;
 
-   auto start = wxMin(left->GetStartTime(), right->GetStartTime());
-   auto end = wxMax(left->GetEndTime(), right->GetEndTime());
+   const auto start = track.GetStartTime();
+   const auto end = track.GetEndTime();
 
    Mixer::Inputs tracks;
-   for (auto pTrack : { left, right })
-      tracks.emplace_back(
-         pTrack->SharedPointer<const SampleTrack>(), GetEffectStages(*pTrack));
+   tracks.emplace_back(
+      track.SharedPointer<const SampleTrack>(), GetEffectStages(track));
 
-   Mixer mixer(move(tracks),
-               true,                // Throw to abort mix-and-render if read fails:
-               Mixer::WarpOptions{*inputTracks()},
-               start,
-               end,
-               1,
-               idealBlockLen,
-               false,               // Not interleaved
-               left->GetRate(),     // Process() checks that left and right
-                                    // rates are the same
-               floatSample);
+   Mixer mixer(
+      move(tracks), std::nullopt,
+      true, // Throw to abort mix-and-render if read fails:
+      Mixer::WarpOptions { inputTracks()->GetOwner() }, start, end, 1,
+      idealBlockLen,
+      false, // Not interleaved
+      track.GetRate(), floatSample);
 
-   auto outTrack = left->EmptyCopy();
+   // Always make mono output; don't use EmptyCopy
+   auto outTrack = track.EmptyCopy(1);
+   auto tempList = TrackList::Temporary(nullptr, outTrack);
    outTrack->ConvertToSampleFormat(floatSample);
 
+   double denominator = track.GetChannelVolume(0) + track.GetChannelVolume(1);
    while (auto blockLen = mixer.Process()) {
       auto buffer = mixer.GetBuffer();
       for (auto i = 0; i < blockLen; i++)
-      {
-         ((float *)buffer)[i] /= 2.0;
-      }
+         ((float *)buffer)[i] /= denominator;
+
       // If mixing channels that both had only 16 bit effective format
       // (for example), and no gains or envelopes, still there should be
       // dithering because of the averaging above, which may introduce samples
-      // lying between the quantization levels.  So default the effectiveFormat
-      // to widest.
-      outTrack->Append(buffer, floatSample, blockLen, 1);
+      // lying between the quantization levels.  So use widestSampleFormat.
+      outTrack->Append(0,
+         buffer, floatSample, blockLen, 1, widestSampleFormat);
 
       curTime += blockLen;
       if (TotalProgress(curTime.as_double() / totalTime.as_double()))
-      {
          return false;
-      }
    }
    outTrack->Flush();
 
-   double minStart = wxMin(left->GetStartTime(), right->GetStartTime());
-   left->Clear(left->GetStartTime(), left->GetEndTime());
-   left->Paste(minStart, outTrack.get());
-   mOutputTracks->UnlinkChannels(*left);
-   mOutputTracks->Remove(right);
-   RealtimeEffectList::Get(*left).Clear();
+   track.Clear(start, end);
+   track.MakeMono();
+   track.Paste(start, *outTrack);
+   RealtimeEffectList::Get(track).Clear();
 
    return bResult;
 }

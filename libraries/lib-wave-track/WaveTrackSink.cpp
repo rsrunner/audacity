@@ -14,16 +14,18 @@
 #include "WaveTrackSink.h"
 
 #include "AudioGraphBuffers.h"
-#include "TimeWarper.h"
 #include "WaveTrack.h"
 #include <cassert>
 
-WaveTrackSink::WaveTrackSink(WaveTrack &left, WaveTrack *pRight,
-   sampleCount start, bool isGenerator, bool isProcessor,
+WaveTrackSink::WaveTrackSink(WaveChannel &left, WaveChannel *pRight,
+   WaveTrack *pGenerated,
+   sampleCount start, bool isProcessor,
    sampleFormat effectiveFormat
 )  : mLeft{ left }, mpRight{ pRight }
-   , mGenLeft{ isGenerator ? left.EmptyCopy() : nullptr }
-   , mGenRight{ pRight && isGenerator ? pRight->EmptyCopy() : nullptr }
+   , mpGenerated{ pGenerated }
+   , mGenLeft{ pGenerated ? (*pGenerated->Channels().begin()).get() : nullptr }
+   , mGenRight{ pRight && pGenerated
+      ? (*pGenerated->Channels().rbegin()).get() : nullptr }
    , mIsProcessor{ isProcessor }
    , mEffectiveFormat{ effectiveFormat }
    , mOutPos{ start }
@@ -47,7 +49,7 @@ bool WaveTrackSink::Acquire(Buffers &data)
       // (less than one block remains; maybe nonzero because of samples
       // discarded for initial latency correction)
       DoConsume(data);
-   return true;
+   return IsOk();
 }
 
 bool WaveTrackSink::Release(const Buffers &, size_t)
@@ -64,15 +66,17 @@ void WaveTrackSink::DoConsume(Buffers &data)
    if (inputBufferCnt > 0) {
       // Some data still unwritten
       if (mIsProcessor) {
-         mLeft.Set(data.GetReadPosition(0),
-            floatSample, mOutPos, inputBufferCnt, mEffectiveFormat);
-         if (mpRight)
-            mpRight->Set(data.GetReadPosition(1),
+         mOk = mOk &&
+            mLeft.Set(data.GetReadPosition(0),
                floatSample, mOutPos, inputBufferCnt, mEffectiveFormat);
+         if (mpRight)
+            mOk = mOk &&
+               mpRight->Set(data.GetReadPosition(1),
+                  floatSample, mOutPos, inputBufferCnt, mEffectiveFormat);
       }
       else if (mGenLeft) {
          mGenLeft->Append(data.GetReadPosition(0),
-            floatSample, inputBufferCnt);
+            floatSample, inputBufferCnt );
          if (mGenRight)
             mGenRight->Append(data.GetReadPosition(1),
                floatSample, inputBufferCnt);
@@ -90,18 +94,9 @@ void WaveTrackSink::DoConsume(Buffers &data)
    assert(data.BlockSize() <= data.Remaining());
 }
 
-void WaveTrackSink::Flush(Buffers &data, const double t0, const double t1)
+void WaveTrackSink::Flush(Buffers &data)
 {
    DoConsume(data);
-   if (mGenLeft) {
-      // Transfer the data from the temporary tracks to the actual ones
-      mGenLeft->Flush();
-      // mT1 gives us the NEW selection. We want to replace up to GetSel1().
-      PasteTimeWarper warper{ t1, t0 + mGenLeft->GetEndTime() };
-      mLeft.ClearAndPaste(t0, t1, mGenLeft.get(), true, true, &warper);
-      if (mGenRight) {
-         mGenRight->Flush();
-         mpRight->ClearAndPaste(t0, t1, mGenRight.get(), true, true, &warper);
-      }
-   }
+   if (mpGenerated)
+      mpGenerated->Flush();
 }

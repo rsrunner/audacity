@@ -14,7 +14,7 @@
 *//****************************************************************//**
 
 \class AudacityCommandDialog
-\brief Default dialog used for commands.  Is populated using 
+\brief Default dialog used for commands.  Is populated using
 ShuttleGui.
 
 *//*******************************************************************/
@@ -28,18 +28,19 @@ ShuttleGui.
 #include <algorithm>
 
 #include <wx/defs.h>
+#include <wx/frame.h>
+#include <wx/log.h>
 #include <wx/stockitem.h>
 #include <wx/tglbtn.h>
-#include <wx/log.h>
 
 #include "ConfigInterface.h"
 
+#include "AudacityMessageBox.h"
+#include "HelpSystem.h"
+#include "ProgressDialog.h"
+#include "ProjectWindows.h"
 #include "ShuttleAutomation.h"
 #include "ShuttleGui.h"
-#include "ProgressDialog.h"
-#include "HelpSystem.h"
-#include "AudacityMessageBox.h"
-#include "../widgets/VetoDialogHook.h"
 
 #include <unordered_map>
 
@@ -83,7 +84,7 @@ bool AudacityCommand::ShowInterface(wxWindow *parent, bool WXUNUSED(forceModal))
 
    // mUIDialog is null
    auto cleanup = valueRestorer( mUIDialog );
-   
+
    mUIDialog = CreateUI(parent, this);
    if (!mUIDialog)
       return false;
@@ -91,10 +92,6 @@ bool AudacityCommand::ShowInterface(wxWindow *parent, bool WXUNUSED(forceModal))
    mUIDialog->Layout();
    mUIDialog->Fit();
    mUIDialog->SetMinSize(mUIDialog->GetSize());
-
-   // The Screenshot command might be popping this dialog up, just to capture it.
-   if ( VetoDialogHook::Call( mUIDialog ) )
-      return false;
 
    bool res = mUIDialog->ShowModal() != 0;
    return res;
@@ -156,9 +153,8 @@ bool AudacityCommand::LoadSettingsFromString(const wxString & parms)
    return TransferDataToWindow();
 }
 
-bool AudacityCommand::DoAudacityCommand(wxWindow *parent,
-                      const CommandContext & context,
-                      bool shouldPrompt /* = true */)
+bool AudacityCommand::DoAudacityCommand(
+   const CommandContext& context, bool shouldPrompt /* = true */)
 {
    // Note: Init may read parameters from preferences
    if (!Init())
@@ -166,10 +162,10 @@ bool AudacityCommand::DoAudacityCommand(wxWindow *parent,
       return false;
    }
 
-   // Prompting will be bypassed when applying a command that has already 
+   // Prompting will be bypassed when applying a command that has already
    // been configured, e.g. repeating the last effect on a different selection.
    // Prompting may call AudacityCommand::Preview
-   if (shouldPrompt && /*IsInteractive() && */!PromptUser(parent))
+   if (shouldPrompt && /*IsInteractive() && */!PromptUser(context.project))
    {
       return false;
    }
@@ -196,9 +192,9 @@ bool AudacityCommand::DoAudacityCommand(wxWindow *parent,
 }
 
 // This is used from Macros.
-bool AudacityCommand::PromptUser(wxWindow *parent)
+bool AudacityCommand::PromptUser(AudacityProject& project)
 {
-   return ShowInterface(parent, IsBatchProcessing());
+   return ShowInterface(&GetProjectFrame(project), IsBatchProcessing());
 }
 
 bool AudacityCommand::TransferDataToWindow()

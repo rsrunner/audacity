@@ -13,22 +13,21 @@ Paul Licameli split from Mix.cpp
 #include "BasicUI.h"
 #include "Mix.h"
 #include "RealtimeEffectList.h"
+#include "StretchingSequence.h"
 #include "WaveTrack.h"
 
 using WaveTrackConstArray = std::vector < std::shared_ptr < const WaveTrack > >;
 
 //TODO-MB: wouldn't it make more sense to DELETE the time track after 'mix and render'?
-void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
+Track::Holder MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    const Mixer::WarpOptions &warpOptions,
    const wxString &newTrackName,
    WaveTrackFactory *trackFactory,
    double rate, sampleFormat format,
-   double startTime, double endTime,
-   WaveTrack::Holder &uLeft, WaveTrack::Holder &uRight)
+   double startTime, double endTime)
 {
-   uLeft.reset(), uRight.reset();
    if (trackRange.empty())
-      return;
+      return {};
 
    // This function was formerly known as "Quick Mix".
    bool mono = false;   /* flag if output can be mono without losing anything*/
@@ -42,12 +41,11 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    // selected WaveTracks. The tracklist is (confusingly) the list of all
    // tracks in the project
 
-   int numWaves = 0; /* number of wave tracks in the selection */
-   int numMono = 0;  /* number of mono, centre-panned wave tracks in selection*/
-   for(auto wt : trackRange) {
-      numWaves++;
-      float pan = wt->GetPan();
-      if (wt->GetChannel() == Track::MonoChannel && pan == 0)
+   size_t numWaves = 0; /* number of wave tracks in the selection */
+   size_t numMono = 0;  /* number of mono, centre-panned wave tracks in selection*/
+   for (auto wt : trackRange) {
+      numWaves += wt->NChannels();
+      if (IsMono(*wt) && wt->GetPan() == 0)
          numMono++;
    }
 
@@ -67,9 +65,10 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
 
    Mixer::Inputs waveArray;
 
-   for(auto wt : trackRange) {
-      waveArray.emplace_back(
-         wt->SharedPointer<const SampleTrack>(), GetEffectStages(*wt));
+   for (auto wt : trackRange) {
+      const auto stretchingSequence =
+         StretchingSequence::Create(*wt, wt->GetClipInterfaces());
+      waveArray.emplace_back(stretchingSequence, GetEffectStages(*wt));
       tstart = wt->GetStartTime();
       tend = wt->GetEndTime();
       if (tend > mixEndTime)
@@ -91,44 +90,20 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    }
 
    /* create the destination track (NEW track) */
-   if (numWaves == (int)TrackList::Channels(first).size())
+   if (numWaves == first->NChannels())
       oneinput = true;
    // only one input track (either 1 mono or one linked stereo pair)
 
-   // EmptyCopy carries over any interesting channel group information
-   // But make sure the left is unlinked before we re-link
-   // And reset pan and gain
-   auto mixLeft =
-      first->EmptyCopy(trackFactory->GetSampleBlockFactory(), false);
-   mixLeft->SetPan(0);
-   mixLeft->SetGain(1);
-   mixLeft->SetRate(rate);
-   mixLeft->ConvertToSampleFormat(format);
-   if (oneinput)
-      mixLeft->SetName(first->GetName()); /* set name of output track to be the same as the sole input track */
-   else
-      /* i18n-hint: noun, means a track, made by mixing other tracks */
-      mixLeft->SetName(newTrackName);
-   mixLeft->SetOffset(mixStartTime);
+   auto mix = trackFactory->Create(mono ? 1 : 2, *first);
+   mix->SetPan(0);
+   mix->SetVolume(1.0f);
+   mix->SetRate(rate);
+   mix->ConvertToSampleFormat(format);
+   if(!oneinput)
+      mix->SetName(newTrackName);
+   mix->MoveTo(mixStartTime);
 
-   // TODO: more-than-two-channels
-   decltype(mixLeft) mixRight{};
-   if ( !mono ) {
-      mixRight = trackFactory->Create(format, rate);
-      if (oneinput) {
-         auto channels = TrackList::Channels(first);
-         if (channels.size() > 1)
-            mixRight->SetName((*channels.begin().advance(1))->GetName()); /* set name to match input track's right channel!*/
-         else
-            mixRight->SetName(first->GetName());   /* set name to that of sole input channel */
-      }
-      else
-         mixRight->SetName(newTrackName);
-      mixRight->SetOffset(mixStartTime);
-   }
-
-
-   auto maxBlockLen = mixLeft->GetIdealBlockSize();
+   auto maxBlockLen = mix->GetIdealBlockSize();
 
    // If the caller didn't specify a time range, use the whole range in which
    // any input track had clips in it.
@@ -137,10 +112,10 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
       endTime = mixEndTime;
    }
 
-   Mixer mixer(move(waveArray),
+   Mixer mixer(
+      std::move(waveArray), std::nullopt,
       // Throw to abort mix-and-render if read fails:
-      true, warpOptions,
-      startTime, endTime, mono ? 1 : 2, maxBlockLen, false,
+      true, warpOptions, startTime, endTime, mono ? 1 : 2, maxBlockLen, false,
       rate, format);
 
    using namespace BasicUI;
@@ -156,31 +131,21 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
          if (blockLen == 0)
             break;
 
-         if (mono) {
-            auto buffer = mixer.GetBuffer();
-            mixLeft->Append(buffer, format, blockLen, 1, effectiveFormat);
-         }
-         else {
-            auto buffer = mixer.GetBuffer(0);
-            mixLeft->Append(buffer, format, blockLen, 1, effectiveFormat);
-            buffer = mixer.GetBuffer(1);
-            mixRight->Append(buffer, format, blockLen, 1, effectiveFormat);
+         for(auto channel : mix->Channels())
+         {
+            auto buffer = mixer.GetBuffer(channel->GetChannelIndex());
+            channel->AppendBuffer(buffer, format, blockLen, 1, effectiveFormat);
          }
 
          updateResult = pProgress->Poll(
             mixer.MixGetCurrentTime() - startTime, endTime - startTime);
       }
    }
-
-   mixLeft->Flush();
-   if (!mono)
-      mixRight->Flush();
-   if (updateResult == ProgressResult::Cancelled || updateResult == ProgressResult::Failed)
-   {
-      return;
-   }
+   mix->Flush();
+   if (updateResult == ProgressResult::Cancelled ||
+       updateResult == ProgressResult::Failed)
+      return {};
    else {
-      uLeft = mixLeft, uRight = mixRight;
 #if 0
    int elapsedMS = wxGetElapsedTime();
    double elapsedTime = elapsedMS * 0.001;
@@ -193,20 +158,20 @@ void MixAndRender(const TrackIterRange<const WaveTrack> &trackRange,
    wxPrintf("Elapsed time: %f sec\n", elapsedTime);
    wxPrintf("Max number of tracks to mix in real time: %f\n", maxTracks);
 #endif
-
-      for (auto pTrack : { uLeft.get(), uRight.get() })
-         if (pTrack)
-            RealtimeEffectList::Get(*pTrack).Clear();
+      RealtimeEffectList::Get(*mix).Clear();
    }
+
+   return mix;
 }
 
 #include "RealtimeEffectList.h"
 #include "RealtimeEffectState.h"
 
+template<typename Host>
 std::vector<MixerOptions::StageSpecification>
-GetEffectStages(const WaveTrack &track)
+GetEffectStagesImpl(const Host &host)
 {
-   auto &effects = RealtimeEffectList::Get(track);
+   auto &effects = RealtimeEffectList::Get(host);
    if (!effects.IsActive())
       return {};
    std::vector<MixerOptions::StageSpecification> result;
@@ -227,6 +192,18 @@ GetEffectStages(const WaveTrack &track)
    return result;
 }
 
+std::vector<MixerOptions::StageSpecification>
+GetEffectStages(const WaveTrack& track)
+{
+   return GetEffectStagesImpl(track);
+}
+
+std::vector<MixerOptions::StageSpecification>
+GetMasterEffectStages(const AudacityProject& project)
+{
+   return GetEffectStagesImpl(project);
+}
+
 /* The following registration objects need a home at a higher level to avoid
  dependency either way between WaveTrack or RealtimeEffectList, which need to
  be in different libraries that do not depend either on the other.
@@ -234,7 +211,7 @@ GetEffectStages(const WaveTrack &track)
  WaveTrack, like AudacityProject, has a registry for attachment of serializable
  data.  RealtimeEffectList exposes an interface for serialization.  This is
  where we connect them.
- 
+
  There is also registration for serialization of the project-wide master effect
  stack (whether or not UI makes it available).
  */
@@ -256,6 +233,5 @@ static WaveTrackIORegistry::ObjectReaderEntry waveTrackAccessor {
 
 static WaveTrackIORegistry::ObjectWriterEntry waveTrackWriter {
 [](const WaveTrack &track, auto &xmlFile) {
-   if (track.IsLeader())
-      RealtimeEffectList::Get(track).WriteXML(xmlFile);
+   RealtimeEffectList::Get(track).WriteXML(xmlFile);
 } };

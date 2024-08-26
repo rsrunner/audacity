@@ -126,21 +126,23 @@ void AboutDialog::CreateCreditsList()
    const auto graphicsFormat =
    /* i18n-hint: For "About Audacity..." credits, substituting a person's proper name */
       XO("%s, graphics");
+   const auto presetsFormat =
+   /* i18n-hint: For "About Audacity..." credits, substituting a person's proper name */
+      XO("%s, effects presets");
 
    // The Audacity Team: developers and support
-   AddCredit(wxT("Gonzalo Guzm\u00E1n"), documentationAndSupportFormat, roleTeamMember);
+   AddCredit(wxT("Antons \u010cinakovs"), testerFormat, roleTeamMember);
+   AddCredit(wxT("Matthieu Hodgkinson"), developerFormat, roleTeamMember);
    AddCredit(wxT("Peter Jonas"), developerFormat, roleTeamMember);
    AddCredit(wxT("Martin Keary"), roleTeamMember);
    AddCredit(wxT("Sergey Lapysh"), testerFormat, roleTeamMember);
-   AddCredit(wxT("Paul Licameli"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Ryan Miller"), testerFormat, roleTeamMember);
+   AddCredit(wxT("Yana Larina"), roleTeamMember);
    AddCredit(wxT("Dilson's Pickles"), designerFormat, roleTeamMember);
-   AddCredit(wxT("K. Soze"), developerFormat, roleTeamMember);
    AddCredit(wxT("Anita Sudan"), roleTeamMember);
    AddCredit(wxT("Vitaly Sverchinsky"), developerFormat, roleTeamMember);
-   AddCredit(wxT("Dmitry Vedenko"), developerFormat, roleTeamMember);
    AddCredit(wxT("Leo Wattenberg"), designerFormat, roleTeamMember);
    AddCredit(wxT("Jessica Williamson"), designerFormat, roleTeamMember);
+   
    
    // Emeritus: people who were "lead developers" or made an
    // otherwise distinguished contribution, but who are no
@@ -161,6 +163,7 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Ruslan Ijbulatov"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Vaughan Johnson"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Greg Kozikowski"), documentationAndSupportFormat, roleEmeritusTeam);
+   AddCredit(wxT("Paul Licameli"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Leland Lucius"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Dominic Mazzoni"), coFounderFormat, roleEmeritusTeam);
    AddCredit(wxT("Markus Meyer"), developerFormat, roleEmeritusTeam);
@@ -170,10 +173,12 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Alexandre Prokoudine"), documentationAndSupportFormat, roleEmeritusTeam);
    AddCredit(wxT("Peter Sampson"), qaDocumentationAndSupportFormat, roleEmeritusTeam);
    AddCredit(wxT("Martyn Shaw"), developerFormat, roleEmeritusTeam);
+   AddCredit(wxT("Dmitry Vedenko"), developerFormat, roleEmeritusTeam);
    AddCredit(wxT("Bill Wharrie"), documentationAndSupportFormat, roleEmeritusTeam);
 
    // Contributors
    AddCredit(wxT("Lynn Allan"), developerFormat, roleContributor);
+   AddCredit(wxT("Johan Althoff (teetow)"), designerFormat, roleContributor);
    AddCredit(wxT("Brian Armstrong"), developerFormat, roleContributor);
    AddCredit(wxT("David Avery"), developerFormat, roleContributor);
    AddCredit(wxT("David Bailes"), accessibilityAdvisorFormat, roleContributor);
@@ -190,12 +195,15 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Anton Gerasimov"), developerFormat, roleContributor);
    AddCredit(wxT("Mitch Golden"), developerFormat, roleContributor);
    AddCredit(wxT("Brian Gunlogson"), developerFormat, roleContributor);
+   AddCredit(wxT("Gonzalo Guzm\u00E1n"), documentationAndSupportFormat, roleContributor);
    AddCredit(wxT("Andrew Hallendorff"), developerFormat, roleContributor);
    AddCredit(wxT("Robert H\u00E4nggi"), developerFormat, roleContributor);
    AddCredit(wxT("Jouni Helminen"), designerFormat, roleContributor);
    AddCredit(wxT("Daniel Horgan"), developerFormat, roleContributor);
    AddCredit(wxT("David Hostetler"), developerFormat, roleContributor);
    AddCredit(wxT("Edward Hui"), developerFormat, roleContributor);
+   AddCredit(wxT("Vladislav Isaev"), presetsFormat, roleContributor);
+   AddCredit(wxT("Marek Iwaszkiewicz"), presetsFormat, roleContributor);
    AddCredit(wxT("Steve Jolly"), developerFormat, roleContributor);
    AddCredit(wxT("Steven Jones"), developerFormat, roleContributor);
    AddCredit(wxT("Henric Jungheim"), developerFormat, roleContributor);
@@ -207,6 +215,7 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Pietro Marcello"), developerFormat, roleContributor);
    AddCredit(wxT("Greg Mekkes"), developerFormat, roleContributor);
    AddCredit(wxT("Abe Milde"), developerFormat, roleContributor);
+   AddCredit(wxT("Ryan Miller"), testerFormat, roleContributor);
    AddCredit(wxT("Paul Nasca"), developerFormat, roleContributor);
    AddCredit(wxT("Clayton Otey"), developerFormat, roleContributor);
    AddCredit(wxT("Pavel Penikov"), testerFormat, roleContributor);
@@ -219,6 +228,7 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("Benjamin Schwartz"), developerFormat, roleContributor);
    AddCredit(wxT("Cliff Scott"), testerFormat, roleContributor);
    AddCredit(wxT("David R. Sky"), NyquistPluginsFormat, roleContributor);
+   AddCredit(wxT("K. Soze"), developerFormat, roleContributor);
    AddCredit(wxT("Rob Sykes"), developerFormat, roleContributor);
    AddCredit(wxT("Mike Underwood"), developerFormat, roleContributor);
    AddCredit(wxT("Philip Van Baren"), developerFormat, roleContributor);
@@ -239,7 +249,6 @@ void AboutDialog::CreateCreditsList()
    AddCredit(wxT("[[https://libexpat.github.io/|expat]]"), roleLibrary);
    AddCredit(wxT("[[https://xiph.org/flac/|FLAC]]"), roleLibrary);
    AddCredit(wxT("[[http://lame.sourceforge.net/|LAME]]"), roleLibrary);
-   AddCredit(wxT("[[https://www.underbit.com/products/mad/|libmad]]"), roleLibrary);
    AddCredit(wxT("[[http://www.mega-nerd.com/libsndfile/|libsndfile]]"), roleLibrary);
    AddCredit(wxT("[[https://sourceforge.net/p/soxr/wiki/Home/|libsoxr]]"), roleLibrary);
    AddCredit(
@@ -429,7 +438,7 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
       << wxT("<p><br>&nbsp; &nbsp; ")
       /* i18n-hint Audacity's name substitutes for first and third %s,
        and a "copyright" symbol for the second */
-      << XO("%s software is copyright %s 1999-2023 %s Team.")
+      << XO("%s software is copyright %s 1999-2024 %s Team.")
          .Format(
             Verbatim("<b>%s<sup>&reg;</sup></b>").Format( ProgramName ),
             wxT("&copy;"),
@@ -450,10 +459,8 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
       //v For now, change to AudacityLogoWithName via old-fashioned way, not Theme.
       wxBitmap logo(AudacityLogoWithName_xpm); //v
 
-      // JKC: Resize to 50% of size.  Later we may use a smaller xpm as
-      // our source, but this allows us to tweak the size - if we want to.
-      // It also makes it easier to revert to full size if we decide to.
-      const float fScale = 0.5f;// smaller size.
+      //Setup to scale the logo larger and smaller as necessary
+      const float fScale = 1.0f;
       wxImage RescaledImage(logo.ConvertToImage());
       wxColour MainColour(
          RescaledImage.GetRed(1,1),
@@ -478,7 +485,7 @@ void AboutDialog::PopulateAudacityPage( ShuttleGui & S )
    HtmlWindow *html = safenew LinkingHtmlWindow(S.GetParent(), -1,
                                          wxDefaultPosition,
                                          wxSize(ABOUT_DIALOG_WIDTH, 359),
-                                         wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+                                         wxHW_SCROLLBAR_AUTO);
    html->SetPage( FormatHtmlText( o.GetString() ) );
 
    /* locate the html renderer where it fits in the dialogue */
@@ -503,7 +510,7 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
    S.StartVerticalLay(2);  // create the window
    HtmlWindow *html = safenew LinkingHtmlWindow(S.GetParent(), -1, wxDefaultPosition,
                            wxSize(ABOUT_DIALOG_WIDTH, 264),
-                           wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+                           wxHW_SCROLLBAR_AUTO );
    // create a html pane in it to put the content in.
    auto enabled = XO("Enabled");
    auto disabled = XO("Disabled");
@@ -511,11 +518,6 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
 
    /* this builds up the list of information to go in the window in the string
     * informationStr */
-   informationStr
-      << wxT("<h2><center>")
-      << XO("Build Information")
-      << wxT("</center></h2>\n")
-      << VerCheckHtml();
  
    informationStr
       << wxT("<h3>")
@@ -611,14 +613,24 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
    informationStr
       << wxT("<table>");   // start table of file formats supported
 
-
-   #if defined(USE_LIBMAD)
-   /* i18n-hint: This is what the library (libmad) does - imports MP3 files */
-   AddBuildinfoRow(&informationStr, wxT("libmad"), XO("MP3 Importing"), enabled);
-   #elif defined(USE_LIBID3TAG)
-   AddBuildinfoRow(&informationStr, wxT("libmpg123"), XO("MP3 Importing"), enabled);
+   #if defined(USE_LIBMPG123)
+   AddBuildinfoRow(&informationStr, wxT("libmpg123"), XO("MP3 Import"), enabled);
    #else
-   AddBuildinfoRow(&informationStr, wxT("libmad"), XO("MP3 Importing"), disabled);
+   AddBuildinfoRow(&informationStr, wxT("libmpg123"), XO("MP3 Import"), disabled);
+   #endif
+
+   #if USE_LIBMP3LAME
+   AddBuildinfoRow(
+      &informationStr, wxT("libmp3lame"),
+      /* i18n-hint: LAME is the codec name. This name should not be translated
+       */
+      XO("MP3 Export"), enabled);
+   #else
+   AddBuildinfoRow(
+      &informationStr, wxT("libopus"),
+      /* i18n-hint: Opus is the codec name. This name should not be translated
+       */
+      XO("Opus Import and Export"), disabled);
    #endif
 
    #ifdef USE_LIBVORBIS
@@ -629,6 +641,19 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
    #else
    AddBuildinfoRow(&informationStr, wxT("libvorbis"),
          XO("Ogg Vorbis Import and Export"), disabled);
+   #endif
+
+   #if USE_LIBVORBIS && USE_LIBOPUS && USE_OPUSFILE
+   AddBuildinfoRow(
+      &informationStr, wxT("libopus"),
+      /* i18n-hint: Opus is the codec name. This name should not be translated */
+      XO("Opus Import and Export"), enabled);
+   #else
+   AddBuildinfoRow(
+      &informationStr, wxT("libopus"),
+      /* i18n-hint: Opus is the codec name. This name should not be translated
+       */
+      XO("Opus Import and Export"), disabled);
    #endif
 
    #ifdef USE_LIBID3TAG
@@ -657,24 +682,10 @@ void AboutDialog::PopulateInformationPage( ShuttleGui & S )
          disabled);
    # endif
 
-   # if USE_QUICKTIME
-   AddBuildinfoRow(&informationStr, wxT("QuickTime"), XO("Import via QuickTime"),
-         enabled);
-   # else
-   AddBuildinfoRow(&informationStr, wxT("QuickTime"), XO("Import via QuickTime"),
-         disabled);
-   # endif
-
    #ifdef USE_FFMPEG
    AddBuildinfoRow(&informationStr, wxT("ffmpeg"), XO("FFmpeg Import/Export"), enabled);
    #else
    AddBuildinfoRow(&informationStr, wxT("ffmpeg"), XO("FFmpeg Import/Export"), disabled);
-   #endif
-
-   #ifdef USE_GSTREAMER
-   AddBuildinfoRow(&informationStr, wxT("gstreamer"), XO("Import via GStreamer"), enabled);
-   #else
-   AddBuildinfoRow(&informationStr, wxT("gstreamer"), XO("Import via GStreamer"), disabled);
    #endif
 
    informationStr << wxT("</table>\n");  //end table of file formats supported
@@ -808,7 +819,7 @@ void AboutDialog::PopulateLicensePage( ShuttleGui & S )
    {
       HtmlWindow* html = safenew LinkingHtmlWindow(
          S.GetParent(), -1, wxDefaultPosition, wxSize(ABOUT_DIALOG_WIDTH, 264),
-         wxHW_SCROLLBAR_AUTO | wxSUNKEN_BORDER);
+         wxHW_SCROLLBAR_AUTO );
 
       html->SetPage(FormatHtmlText(GPL_TEXT()));
 

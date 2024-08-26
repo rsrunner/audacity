@@ -4,7 +4,7 @@
  */
 
 #include "../../../ui/TimeShiftHandle.h"
-#include "../../../../NoteTrack.h"
+#include "NoteTrack.h"
 #include "ViewInfo.h"
 
 class NoteTrackShifter final : public TrackShifter {
@@ -29,9 +29,9 @@ public:
          return HitTestResult::Intervals;
    }
 
-   void SelectInterval( const TrackInterval &interval ) override
+   void SelectInterval(TimeInterval interval) override
    {
-      CommonSelectInterval( interval );
+      CommonSelectInterval(interval);
    }
 
    bool SyncLocks() override { return true; }
@@ -50,7 +50,7 @@ public:
    }
 
 private:
-   std::shared_ptr<NoteTrack> mpTrack;
+   const std::shared_ptr<NoteTrack> mpTrack;
 };
 
 using MakeNoteTrackShifter = MakeTrackShifter::Override<NoteTrack>;

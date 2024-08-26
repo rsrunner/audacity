@@ -13,14 +13,14 @@ Paul Licameli split from TrackPanel.cpp
 
 #include <thread>
 #include <vector>
+#include <wx/event.h>
 #include <wx/longlong.h>
 
 #include "../../ScrubState.h" // for ScrubbingOptions
 #include "ClientData.h" // to inherit
 #include "Prefs.h" // to inherit
 #include "../../widgets/Overlay.h" // to inherit
-#include "../../commands/CommandContext.h"
-#include "../../commands/CommandManager.h" // for MenuTable
+#include "CommandContext.h"
 #include "Identifier.h"
 
 class AudacityProject;
@@ -42,18 +42,18 @@ class AUDACITY_DLL_API Scrubber final
    , private PrefsListener
    , public std::enable_shared_from_this< Scrubber >
 {
-public:   
+public:
    static Scrubber &Get( AudacityProject &project );
    static const Scrubber &Get( const AudacityProject &project );
 
    explicit
    Scrubber(AudacityProject *project);
-   Scrubber( const Scrubber & ) PROHIBITED;
-   Scrubber &operator=( const Scrubber & ) PROHIBITED;
+   Scrubber( const Scrubber & ) = delete;
+   Scrubber &operator=( const Scrubber & ) = delete;
    ~Scrubber();
 
    static bool ShouldScrubPinned();
-   
+
    // Assume xx is relative to the left edge of TrackPanel!
    void MarkScrubStart(wxCoord xx, bool smoothScrolling, bool seek);
 
@@ -174,9 +174,7 @@ private:
 
    bool mCancelled {};
 
-#ifdef EXPERIMENTAL_SCRUBBING_SCROLL_WHEEL
    int mLogMaxScrubSpeed;
-#endif
 
    AudacityProject *mProject;
 

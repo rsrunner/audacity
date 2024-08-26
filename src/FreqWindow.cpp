@@ -45,6 +45,7 @@ the mouse around.
 #include <wx/dcmemory.h>
 #include <wx/font.h>
 #include <wx/file.h>
+#include <wx/frame.h>
 #include <wx/scrolbar.h>
 #include <wx/slider.h>
 #include <wx/statbmp.h>
@@ -59,19 +60,20 @@ the mouse around.
 
 #include <math.h>
 
-#include "SelectFile.h"
-#include "ShuttleGui.h"
 #include "AColor.h"
+#include "AllThemeResources.h"
+#include "BasicUI.h"
 #include "CommonCommandFlags.h"
+#include "Decibels.h"
 #include "FFT.h"
 #include "PitchName.h"
-#include "Decibels.h"
 #include "Prefs.h"
 #include "Project.h"
-#include "ProjectWindow.h"
+#include "ProjectWindows.h"
+#include "SelectFile.h"
+#include "ShuttleGui.h"
 #include "Theme.h"
 #include "ViewInfo.h"
-#include "AllThemeResources.h"
 
 #include "FileNames.h"
 
@@ -84,7 +86,6 @@ the mouse around.
 #include "widgets/LogarithmicUpdater.h"
 #include "widgets/LinearDBFormat.h"
 #include "widgets/RealFormat.h"
-#include "widgets/VetoDialogHook.h"
 
 #if wxUSE_ACCESSIBILITY
 #include "WindowAccessible.h"
@@ -441,7 +442,7 @@ void FrequencyPlotDialog::Populate()
    // -------------------------------------------------------------------
    // ROW 5: Spacer
    // -------------------------------------------------------------------
-   
+
    S.AddSpace(5);
 
    S.SetBorder(2);
@@ -567,7 +568,8 @@ bool FrequencyPlotDialog::Show(bool show)
       dBRange = DecibelScaleCutoff.Read();
       if(dBRange < 90.)
          dBRange = 90.;
-      GetAudio();
+      if (!GetAudio())
+         return false;
       // Don't send an event.  We need the recalc right away.
       // so that mAnalyst is valid when we paint.
       //SendRecalcEvent();
@@ -579,18 +581,20 @@ bool FrequencyPlotDialog::Show(bool show)
    return res;
 }
 
-void FrequencyPlotDialog::GetAudio()
+bool FrequencyPlotDialog::GetAudio()
 {
    mData.reset();
    mDataLen = 0;
 
    int selcount = 0;
    bool warning = false;
-   for (auto track : TrackList::Get( *mProject ).Selected< const WaveTrack >()) {
-      auto &selectedRegion = ViewInfo::Get( *mProject ).selectedRegion;
-      if (selcount==0) {
+   for (auto track :
+      TrackList::Get(*mProject).Selected<const WaveTrack>()
+   ) {
+      auto &selectedRegion = ViewInfo::Get(*mProject).selectedRegion;
+      auto start = track->TimeToLongSamples(selectedRegion.t0());
+      if (selcount == 0) {
          mRate = track->GetRate();
-         auto start = track->TimeToLongSamples(selectedRegion.t0());
          auto end = track->TimeToLongSamples(selectedRegion.t1());
          auto dataLen = end - start;
          // Permit approximately 46.60 minutes of selected samples at
@@ -600,36 +604,54 @@ void FrequencyPlotDialog::GetAudio()
             warning = true;
             mDataLen = maxDataLen;
          }
-         else {
+         else
             mDataLen = dataLen.as_size_t();
-         }
          mData = Floats{ mDataLen };
-         // Don't allow throw for bad reads
-         track->GetFloats(mData.get(), start, mDataLen,
-                    fillZero, false);
       }
-      else {
-         if (track->GetRate() != mRate) {
-            AudacityMessageBox(
-               XO(
-"To plot the spectrum, all selected tracks must be the same sample rate.") );
-            mData.reset();
-            mDataLen = 0;
-            return;
-         }
-         auto start = track->TimeToLongSamples(selectedRegion.t0());
-         Floats buffer2{ mDataLen };
-         // Again, stop exceptions
-         track->GetFloats(buffer2.get(), start, mDataLen,
-                    fillZero, false);
+      const auto nChannels = track->NChannels();
+      if (track->GetRate() != mRate) {
+         using namespace BasicUI;
+         ShowMessageBox(
+            XO("To plot the spectrum, all selected tracks must have the same sample rate."),
+            MessageBoxOptions {}.Caption(XO("Error")).IconStyle(Icon::Error));
+         mData.reset();
+         mDataLen = 0;
+         return false;
+      }
+      Floats buffer1{ mDataLen };
+      Floats buffer2{ mDataLen };
+      float *const buffers[]{ buffer1.get(), buffer2.get() };
+      // Don't allow throw for bad reads
+      if (!track->GetFloats(
+             0, nChannels, buffers, start, mDataLen, false,
+             FillFormat::fillZero, false))
+      {
+         using namespace BasicUI;
+         ShowMessageBox(
+            XO("Audio could not be analyzed. This may be due to a stretched or pitch-shifted clip.\nTry resetting any stretched clips, or mixing and rendering the tracks before analyzing"),
+            MessageBoxOptions {}.Caption(XO("Error")).IconStyle(Icon::Error));
+         mData.reset();
+         mDataLen = 0;
+         return false;
+      }
+      size_t iChannel = 0;
+      if (selcount == 0) {
+         // First channel -- assign into mData
          for (size_t i = 0; i < mDataLen; i++)
-            mData[i] += buffer2[i];
+            mData[i] = buffers[0][i];
+         ++iChannel;
       }
-      selcount++;
+      // Later channels -- accumulate
+      for (; iChannel < nChannels; ++iChannel) {
+         const auto buffer = buffers[iChannel];
+         for (size_t i = 0; i < mDataLen; i++)
+            mData[i] += buffer[i];
+      }
+      ++selcount;
    }
 
    if (selcount == 0)
-      return;
+      return false;
 
    if (warning) {
       auto msg = XO(
@@ -637,6 +659,7 @@ void FrequencyPlotDialog::GetAudio()
          .Format(mDataLen / mRate);
       AudacityMessageBox( msg );
    }
+   return true;
 }
 
 void FrequencyPlotDialog::OnSize(wxSizeEvent & WXUNUSED(event))
@@ -692,7 +715,7 @@ void FrequencyPlotDialog::DrawPlot()
       }
 
       memDC.SelectObject(wxNullBitmap);
-      
+
       mFreqPlot->Refresh();
 
       Refresh();
@@ -1196,15 +1219,15 @@ void FreqPlot::OnMouseEvent(wxMouseEvent & event)
 }
 
 // Remaining code hooks this add-on into the application
-#include "commands/CommandContext.h"
-#include "commands/CommandManager.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "ProjectWindows.h"
 
 namespace {
 
 AttachedWindows::RegisteredFactory sFrequencyWindowKey{
    []( AudacityProject &parent ) -> wxWeakRef< wxWindow > {
-      auto &window = ProjectWindow::Get( parent );
+      auto &window = GetProjectFrame(parent);
       return safenew FrequencyPlotDialog(
          &window, -1, parent, FrequencyAnalysisTitle,
          wxPoint{ 150, 150 }
@@ -1216,12 +1239,10 @@ AttachedWindows::RegisteredFactory sFrequencyWindowKey{
 void OnPlotSpectrum(const CommandContext &context)
 {
    auto &project = context.project;
-   CommandManager::Get(project).RegisterLastAnalyzer(context);  //Register Plot Spectrum as Last Analyzer
+   CommandManager::Get(project).RegisterLastAnalyzer(context);
    auto freqWindow = &GetAttachedWindows(project)
       .Get< FrequencyPlotDialog >( sFrequencyWindowKey );
 
-   if( VetoDialogHook::Call( freqWindow ) )
-      return;
    freqWindow->Show(true);
    freqWindow->Raise();
    freqWindow->SetFocus();
@@ -1229,11 +1250,12 @@ void OnPlotSpectrum(const CommandContext &context)
 
 // Register that menu item
 
-using namespace MenuTable;
-AttachedItem sAttachment{ wxT("Analyze/Analyzers/Windows"),
+using namespace MenuRegistry;
+AttachedItem sAttachment{
    Command( wxT("PlotSpectrum"), XXO("Plot Spectrum..."),
       OnPlotSpectrum,
-      AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag() )
+      AudioIONotBusyFlag() | WaveTracksSelectedFlag() | TimeSelectedFlag() ),
+   wxT("Analyze/Analyzers/Windows")
 };
 
 }

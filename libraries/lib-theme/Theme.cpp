@@ -262,28 +262,6 @@ void ThemeBase::LoadTheme( teThemeType Theme )
    RotateImageInto( bmpRecordBeside, bmpRecordBelow, false );
    RotateImageInto( bmpRecordBesideDisabled, bmpRecordBelowDisabled, false );
 
-   // Other modifications of images happening only when the setting
-   // GUIBlendThemes is true
-   if ( mpSet->bRecolourOnLoad ) {
-      RecolourTheme();
-
-      wxColor Back        = theTheme.Colour( clrTrackInfo );
-      wxColor CurrentText = theTheme.Colour( clrTrackPanelText );
-      wxColor DesiredText = wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOWTEXT );
-
-      int TextColourDifference =  ColourDistance( CurrentText, DesiredText );
-
-      // Theming is very accepting of alternative text colours.  They just need to
-      // have decent contrast to the background colour, if we're blending themes.
-      if ( TextColourDifference != 0 ) {
-         int ContrastLevel        =  ColourDistance( Back, DesiredText );
-         if ( ContrastLevel > 250 )
-            Colour( clrTrackPanelText ) = DesiredText;
-      }
-      mpSet->bRecolourOnLoad = false;
-   }
-
-
    // Next line is not required as we haven't yet built the GUI
    // when this function is (or should be) called.
    // AColor::ApplyUpdatedImages();
@@ -305,46 +283,10 @@ void ThemeBase::RecolourBitmap( int iIndex, wxColour From, wxColour To )
 }
 
 int ThemeBase::ColourDistance( wxColour & From, wxColour & To ){
-   return 
+   return
       abs( From.Red() - To.Red() )
       + abs( From.Green() - To.Green() )
       + abs( From.Blue() - To.Blue() );
-}
-
-// This function coerces a theme to be more like the system colours.
-// Only used for built in themes.  For custom themes a user
-// will choose a better theme for them and just not use a mismatching one.
-void ThemeBase::RecolourTheme()
-{
-   wxColour From = Colour( clrMedium );
-#if defined( __WXGTK__ )
-   wxColour To = wxSystemSettings::GetColour( wxSYS_COLOUR_BACKGROUND );
-#else
-   wxColour To = wxSystemSettings::GetColour( wxSYS_COLOUR_3DFACE );
-#endif
-   // only recolour if recolouring is slight.
-   int d = ColourDistance( From, To );
-
-   // Don't recolour if difference is too big.
-   if( d  > 120 )
-      return;
-
-   // A minor tint difference from standard does not need 
-   // to be recouloured either.  Includes case of d==0 which is nothing
-   // needs to be done.
-   if( d < 40 )
-      return;
-
-   Colour( clrMedium ) = To;
-   RecolourBitmap( bmpUpButtonLarge, From, To );
-   RecolourBitmap( bmpDownButtonLarge, From, To );
-   RecolourBitmap( bmpHiliteButtonLarge, From, To );
-   RecolourBitmap( bmpUpButtonSmall, From, To );
-   RecolourBitmap( bmpDownButtonSmall, From, To );
-   RecolourBitmap( bmpHiliteButtonSmall, From, To );
-
-   Colour( clrTrackInfo ) = To;
-   RecolourBitmap( bmpUpButtonExpand, From, To );
 }
 
 wxImage ThemeBase::MaskedImage( char const ** pXpm, char const ** pMask )
@@ -391,7 +333,7 @@ wxImage ThemeBase::MaskedImage( char const ** pXpm, char const ** pMask )
 
 // Legacy function to allow use of an XPM where no theme image was defined.
 // Bit depth and mask needs review.
-// Note that XPMs don't offer translucency, so unsuitable for a round shape overlay, 
+// Note that XPMs don't offer translucency, so unsuitable for a round shape overlay,
 // for example.
 void ThemeBase::RegisterImage( NameSet &allNames,
    int &flags, int &iIndex, char const ** pXpm, const wxString & Name )
@@ -659,7 +601,7 @@ bool ThemeBase::CreateOneImageCache( teThemeType id, bool bBinarySave )
          context.GetNextPosition( SrcImage.GetWidth(), SrcImage.GetHeight());
          ImageCache.SetRGB( context.Rect(), 0xf2, 0xb0, 0x27 );
          if( !(context.mFlags & resFlagSkip) )
-            PasteSubImage( &ImageCache, &SrcImage, 
+            PasteSubImage( &ImageCache, &SrcImage,
                context.mxPos + context.mBorderWidth,
                context.myPos + context.mBorderWidth);
          else
@@ -742,7 +684,7 @@ bool ThemeBase::CreateOneImageCache( teThemeType id, bool bBinarySave )
 #if 0
       // Deliberate policy to use the fast/cheap blocky pixel-multiplication
       // algorithm, as this introduces no artifacts on repeated scale up/down.
-      ImageCache.Rescale( 
+      ImageCache.Rescale(
          ImageCache.GetWidth()*4,
          ImageCache.GetHeight()*4,
          wxIMAGE_QUALITY_NEAREST );
@@ -798,7 +740,7 @@ void ThemeBase::WriteOneImageMap( teThemeType id )
    auto &resources = *mpSet;
 
    FlowPacker context{ ImageCacheWidth };
-   
+
    auto dir = ThemeSubdir(GetFilePath(), id);
    auto FileName = wxFileName{ dir, ImageMapFileName }.GetFullPath();
    wxFFile File( FileName, wxT("wb") );// I'll put in NEW lines explicitly.
@@ -889,11 +831,7 @@ void ThemeBase::WriteImageDefs( )
 teThemeType ThemeBase::GetFallbackThemeType(){
 // Fallback must be an internally supported type,
 // to guarantee it is found.
-#ifdef EXPERIMENTAL_DA
-   return "dark";
-#else
    return "light";
-#endif
 }
 
 /// Reads an image cache including images, cursors and colours.
@@ -912,8 +850,6 @@ bool ThemeBase::ReadImageCache( teThemeType type, bool bOkIfNotFound)
 //   {
 //      ImageCache.InitAlpha();
 //   }
-
-   mpSet->bRecolourOnLoad = GUIBlendThemes.Read();
 
    using namespace BasicUI;
 
@@ -1355,7 +1291,7 @@ ChoiceSetting &GUITheme()
       // conserving the ordering that was used in 3.1.0; otherwise
       // sorting other registered themes alphabetically by identifier
       static const Identifier names[] = {
-         "classic", "light", "dark", "high-contrast", "arc-dark"
+         "classic", "light", "dark", "high-contrast", "modern", "arc-dark"
       };
       static auto index = [](const EnumValueSymbol &symbol){
          auto begin = std::begin(names), end = std::end(names);
@@ -1369,17 +1305,11 @@ ChoiceSetting &GUITheme()
          /* i18n-hint: user defined */
          "custom", XO("Custom")
       );
-   
+
       return symbols;
    };
 
-   constexpr int defaultTheme =
-#ifdef EXPERIMENTAL_DA
-      2 // "dark"
-#else
-      1 // "light"
-#endif
-   ;
+   constexpr int defaultTheme = 1; // "light"
 
    static ChoiceSetting setting {
       wxT("/GUI/Theme"), symbols(), defaultTheme
@@ -1387,5 +1317,3 @@ ChoiceSetting &GUITheme()
 
    return setting;
 }
-
-BoolSetting GUIBlendThemes{ wxT("/GUI/BlendThemes"), true };

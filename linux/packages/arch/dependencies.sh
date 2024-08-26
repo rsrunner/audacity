@@ -18,7 +18,6 @@ deps=(
    flac
    lame
    twolame
-   libmad
    libsndfile
    jack
    lilv
@@ -44,6 +43,9 @@ deps=(
    wavpack
    wxwidgets-gtk3
    vst3sdk
+   rapidjson
+   opusfile
+   opus
 )
 
 pacman -Syu --noconfirm \

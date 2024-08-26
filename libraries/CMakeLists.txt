@@ -1,3 +1,7 @@
+#[[
+A directory containing library targets
+]]
+
 # Include the libraries that we'll build
 
 # The list of modules is ordered so that each library occurs after any others
@@ -10,9 +14,11 @@ set( LIBRARIES
    lib-components
    lib-basic-ui
    lib-exceptions
+   lib-export-ui
    lib-preferences
    lib-math
    lib-files
+   lib-import-export
    lib-ipc
    lib-registries
    lib-xml
@@ -20,7 +26,7 @@ set( LIBRARIES
    lib-project
    lib-screen-geometry
    lib-project-rate
-   lib-ffmpeg-support
+   lib-file-formats
    lib-theme
    image-compiler # not a library, but has a place in their dependency graph
    lib-theme-resources
@@ -35,6 +41,7 @@ set( LIBRARIES
    lib-realtime-effects
    lib-audio-io
    lib-wave-track
+   lib-wave-track-paint
    lib-track-selection
    lib-project-file-io
    lib-command-parameters
@@ -48,10 +55,30 @@ set( LIBRARIES
    lib-vst3
    lib-snapping
    lib-vst
-   lib-lv2
    lib-ladspa
    lib-audio-unit
+   lib-playable-track
+   lib-time-and-pitch
+   lib-mixer
+   lib-channel
+   lib-stretching-sequence
+   lib-menus
+   lib-note-track
+   lib-viewport
+   lib-music-information-retrieval
+   lib-crypto
+   lib-fft
+   lib-concurrency
+   lib-sqlite-helpers
+   lib-preference-pages
+   lib-dynamic-range-processor
+   lib-audacity-application-logic
+   lib-builtin-effects
 )
+
+if ( ${_OPT}use_lv2 )
+   list( APPEND LIBRARIES lib-lv2)
+endif()
 
 if ( ${_OPT}has_networking )
    list( APPEND LIBRARIES lib-network-manager)
@@ -63,7 +90,6 @@ endif()
 
 if ( ${_OPT}has_audiocom_upload)
    list( APPEND LIBRARIES
-      lib-cloud-upload
       lib-cloud-audiocom
    )
 endif()

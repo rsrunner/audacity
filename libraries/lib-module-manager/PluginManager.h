@@ -25,7 +25,11 @@
 #include "Observer.h"
 
 class wxArrayString;
-class FileConfig;
+
+namespace audacity
+{
+   class BasicSettings;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -56,7 +60,7 @@ public:
       const PluginPath &path, const TranslatableString *pSymbol) override;
 
    bool IsPluginLoaded(const wxString& ID) const;
-   
+
    void RegisterPlugin(PluginDescriptor&& desc);
    const PluginID & RegisterPlugin(PluginProvider *provider) override;
    const PluginID & RegisterPlugin(PluginProvider *provider, ComponentInterface *command);
@@ -92,19 +96,20 @@ public:
    // PluginManager implementation
 
    // Initialization must inject a factory to make a concrete subtype of
-   // FileConfig
-   using FileConfigFactory = std::function<
-      std::unique_ptr<FileConfig>(const FilePath &localFilename ) >;
+   // BasicSettings
+   using ConfigFactory = std::function<
+      std::unique_ptr<audacity::BasicSettings>(const FilePath &localFilename ) >;
    /*! @pre `factory != nullptr` */
-   void Initialize(FileConfigFactory factory);
+   void Initialize(ConfigFactory factory);
    void Terminate();
 
    bool DropFile(const wxString &fileName);
 
    static PluginManager & Get();
 
-   static PluginID GetID(PluginProvider *provider);
-   static PluginID GetID(ComponentInterface *command);
+
+   static PluginID GetID(const PluginProvider *provider);
+   static PluginID GetID(const ComponentInterface *command);
    static PluginID OldGetID(const EffectDefinitionInterface* effect);
    static PluginID GetID(const EffectDefinitionInterface* effect);
    //! Parse English effect name from the result of
@@ -158,7 +163,10 @@ public:
    bool IsPluginEnabled(const PluginID & ID);
    void EnablePlugin(const PluginID & ID, bool enable);
 
-   const ComponentInterfaceSymbol & GetSymbol(const PluginID & ID);
+   const ComponentInterfaceSymbol & GetSymbol(const PluginID & ID) const;
+   TranslatableString GetName(const PluginID& ID) const;
+   CommandID GetCommandIdentifier(const PluginID& ID) const;
+   const PluginID& GetByCommandIdentifier(const CommandID& strTarget);
    ComponentInterface *Load(const PluginID & ID);
 
    void ClearEffectPlugins();
@@ -179,12 +187,15 @@ public:
    void Load();
    //! Save to preferences
    void Save();
-   
+
    void NotifyPluginsChanged();
 
    //! What is the plugin registry version number now in the file?
    //! (Save() updates it)
    const PluginRegistryVersion &GetRegistryVersion() const override;
+
+   PluginPaths ReadCustomPaths(const PluginProvider& provider) override;
+   void StoreCustomPaths(const PluginProvider& provider, const PluginPaths& paths) override;
 
 private:
    // private! Use Get()
@@ -193,12 +204,12 @@ private:
 
    void InitializePlugins();
 
-   void LoadGroup(FileConfig *pRegistry, PluginType type);
-   void SaveGroup(FileConfig *pRegistry, PluginType type);
+   void LoadGroup(audacity::BasicSettings* pRegistry, PluginType type);
+   void SaveGroup(audacity::BasicSettings* pRegistry, PluginType type);
 
    PluginDescriptor & CreatePlugin(const PluginID & id, ComponentInterface *ident, PluginType type);
 
-   FileConfig *GetSettings();
+   audacity::BasicSettings *GetSettings();
 
    bool HasGroup(const RegistryPath & group);
    bool GetSubgroups(const RegistryPath & group, RegistryPaths & subgroups);
@@ -225,7 +236,7 @@ private:
 
    bool IsDirty();
    void SetDirty(bool dirty = true);
-   std::unique_ptr<FileConfig> mSettings;
+   std::unique_ptr<audacity::BasicSettings> mSettings;
 
    bool mDirty;
    int mCurrentIndex;
@@ -245,6 +256,6 @@ private:
 #define NYQUIST_PROMPT_NAME XO("Nyquist Prompt")
 
 // Latest version of the plugin registry config
-constexpr auto REGVERCUR = "1.3";
+constexpr auto REGVERCUR = "1.4";
 
 #endif /* __AUDACITY_PLUGINMANAGER_H__ */

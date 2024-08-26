@@ -39,6 +39,12 @@ class MATH_API Resample final
    Resample(const bool useBestMethod, const double dMinFactor, const double dMaxFactor);
    ~Resample();
 
+   Resample( Resample&&) noexcept = default;
+   Resample& operator=(Resample&&) noexcept = default;
+
+   Resample(const Resample&) = delete;
+   Resample& operator=(const Resample&) = delete;
+
    static EnumSetting< int > FastMethodSetting;
    static EnumSetting< int > BestMethodSetting;
 
@@ -65,12 +71,12 @@ class MATH_API Resample final
     created by this call
    */
    std::pair<size_t, size_t>
-                Process(double  factor,
-                        float  *inBuffer,
-                        size_t  inBufferLen,
-                        bool    lastFlag,
-                        float  *outBuffer,
-                        size_t  outBufferLen);
+                Process(double       factor,
+                        const float *inBuffer,
+                        size_t       inBufferLen,
+                        bool         lastFlag,
+                        float       *outBuffer,
+                        size_t       outBufferLen);
 
  protected:
    void SetMethod(const bool useBestMethod);

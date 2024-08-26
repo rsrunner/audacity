@@ -15,8 +15,6 @@
 #include "ModuleManager.h"
 #include "wxArrayStringEx.h"
 
-#if USE_VST
-
 #if defined(__WXMSW__)
 #include <Windows.h>
 #include <shlwapi.h>
@@ -46,7 +44,7 @@ DECLARE_PROVIDER_ENTRY(AudacityModule)
 // ============================================================================
 //
 // Register this as a builtin module
-// 
+//
 // We also take advantage of the fact that wxModules are initialized before
 // the wxApp::OnInit() method is called.  We check to see if Audacity was
 // executed to scan a VST effect in a different process.
@@ -115,13 +113,14 @@ void VSTEffectsModule::Terminate()
    return;
 }
 
+bool VSTEffectsModule::SupportsCustomModulePaths() const
+{
+   return true;
+}
+
 EffectFamilySymbol VSTEffectsModule::GetOptionalFamilySymbol()
 {
-#if USE_VST
    return VSTPLUGINTYPE;
-#else
-   return {};
-#endif
 }
 
 const FileExtensions &VSTEffectsModule::GetFileExtensions()
@@ -157,14 +156,22 @@ PluginPaths VSTEffectsModule::FindModulePaths(PluginManagerInterface & pm)
          pathList.push_back(tok.GetNextToken());
       }
    }
+   
+   const auto AddCustomPaths = [](PluginManagerInterface& pm, VSTEffectsModule& module, FilePaths& pathList)
+   {
+      const auto customPaths = pm.ReadCustomPaths(module);
+      std::copy(customPaths.begin(), customPaths.end(), std::back_inserter(pathList));
+   };
 
-#if defined(__WXMAC__)  
+#if defined(__WXMAC__)
 #define VSTPATH wxT("/Library/Audio/Plug-Ins/VST")
 
    // Look in ~/Library/Audio/Plug-Ins/VST and /Library/Audio/Plug-Ins/VST
    pathList.push_back(wxGetHomeDir() + wxFILE_SEP_PATH + VSTPATH);
    pathList.push_back(VSTPATH);
-
+   
+   AddCustomPaths(pm, *this, pathList);
+   
    // Recursively search all paths for Info.plist files.  This will identify all
    // bundles.
    pm.FindFilesInPathList(wxT("Info.plist"), pathList, files, true);
@@ -232,6 +239,8 @@ PluginPaths VSTEffectsModule::FindModulePaths(PluginManagerInterface & pm)
                             WXSIZEOF(dpath));
    pathList.push_back(dpath);
 
+   AddCustomPaths(pm, *this, pathList);
+
    // Recursively scan for all DLLs
    pm.FindFilesInPathList(wxT("*.dll"), pathList, files, true);
 
@@ -248,6 +257,8 @@ PluginPaths VSTEffectsModule::FindModulePaths(PluginManagerInterface & pm)
       pathList.push_back(wxT("/usr/local/lib/vst"));
       pathList.push_back(wxGetHomeDir() + wxFILE_SEP_PATH + wxT(".vst"));
    }
+   
+   AddCustomPaths(pm, *this, pathList);
 
    // Recursively scan for all shared objects
    pm.FindFilesInPathList(wxT("*.so"), pathList, files, true);
@@ -302,5 +313,3 @@ bool VSTEffectsModule::CheckPluginExist(const PluginPath& path) const
    const auto modulePath = path.BeforeFirst(wxT(';'));
    return wxFileName::FileExists(modulePath) || wxFileName::DirExists(modulePath);
 }
-
-#endif // USE_VST

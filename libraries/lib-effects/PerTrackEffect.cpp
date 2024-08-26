@@ -19,18 +19,17 @@
 
 
 #include "PerTrackEffect.h"
+#include "EffectOutputTracks.h"
 
 #include "AudioGraphBuffers.h"
 #include "AudioGraphTask.h"
 #include "EffectStage.h"
-#include "MixAndRender.h"
-#include "SampleTrackSource.h"
 #include "SyncLock.h"
+#include "TimeWarper.h"
 #include "ViewInfo.h"
 #include "WaveTrack.h"
 #include "WaveTrackSink.h"
-
-AudioGraph::Sink::~Sink() = default;
+#include "WideSampleSource.h"
 
 PerTrackEffect::Instance::~Instance() = default;
 
@@ -66,21 +65,32 @@ bool PerTrackEffect::Process(
    EffectInstance &instance, EffectSettings &settings) const
 {
    auto pThis = const_cast<PerTrackEffect *>(this);
-   pThis->CopyInputTracks(true);
+
+   // Destroy any pre-formed output tracks when done
+   auto pOutputs = mpOutputTracks.get();
+
+   std::optional<EffectOutputTracks> outputs;
+   if (!pOutputs)
+      pOutputs = &outputs.emplace(*mTracks, GetType(),
+         EffectOutputTracks::TimeInterval{ mT0, mT1 }, true);
+
    bool bGoodResult = true;
    // mPass = 1;
    if (DoPass1()) {
       auto &myInstance = dynamic_cast<Instance&>(instance);
-      bGoodResult = pThis->ProcessPass(myInstance, settings);
+      bGoodResult = pThis->ProcessPass(pOutputs->Get(), myInstance, settings);
       // mPass = 2;
       if (bGoodResult && DoPass2())
-         bGoodResult = pThis->ProcessPass(myInstance, settings);
+         bGoodResult = pThis->ProcessPass(pOutputs->Get(), myInstance, settings);
    }
-   pThis->ReplaceProcessedTracks(bGoodResult);
+   if (bGoodResult)
+      pOutputs->Commit();
+   DestroyOutputTracks();
    return bGoodResult;
 }
 
-bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
+bool PerTrackEffect::ProcessPass(TrackList &outputs,
+   Instance &instance, EffectSettings &settings)
 {
    const auto duration = settings.extra.GetDuration();
    bool bGoodResult = true;
@@ -108,33 +118,30 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
    };
 
    const bool multichannel = numAudioIn > 1;
-   auto range = multichannel
-      ? mOutputTracks->Leaders()
-      : mOutputTracks->Any();
-   range.VisitWhile( bGoodResult,
-      [&](WaveTrack *pLeft, const Track::Fallthrough &fallthrough) {
-         // Track range visitor functions receive a pointer that is never null
-         auto &left = *pLeft;
-         if (!left.GetSelected())
-            return fallthrough();
+   int iChannel = 0;
+   TrackListHolder results;
+   const auto waveTrackVisitor =
+      [&](WaveTrack &wt, WaveChannel &chan, bool isFirst) {
+         if (isFirst)
+            iChannel = 0;
 
          sampleCount len = 0;
          sampleCount start = 0;
-         WaveTrack *pRight{};
+         WaveChannel *pRight{};
 
-         const auto numChannels =
-            AudioGraph::MakeChannelMap(left, multichannel, map);
+         const int channel = (multichannel ? -1 : iChannel++);
+         const auto numChannels = MakeChannelMap(wt.NChannels(), channel, map);
          if (multichannel) {
             assert(numAudioIn > 1);
             if (numChannels == 2) {
                // TODO: more-than-two-channels
-               pRight = *TrackList::Channels(&left).rbegin();
+               pRight = (*wt.Channels().rbegin()).get();
                clear = false;
             }
          }
 
          if (!isGenerator) {
-            GetBounds(left, pRight, &start, &len);
+            GetBounds(wt, &start, &len);
             mSampleCnt = len;
             if (len > 0 && numAudioIn < 1) {
                bGoodResult = false;
@@ -142,12 +149,12 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
             }
          }
          else
-            mSampleCnt = left.TimeToLongSamples(duration);
+            mSampleCnt = wt.TimeToLongSamples(duration);
 
-         const auto sampleRate = left.GetRate();
+         const auto sampleRate = wt.GetRate();
 
          // Get the block size the client wants to use
-         auto max = left.GetMaxBlockSize() * 2;
+         auto max = wt.GetMaxBlockSize() * 2;
          const auto blockSize = instance.SetBlockSize(max);
          if (blockSize == 0) {
             bGoodResult = false;
@@ -210,7 +217,7 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
             clear = true;
          }
 
-         const auto genLength = [this, &settings, &left, isGenerator](
+         const auto genLength = [this, &settings, &wt, isGenerator](
          ) -> std::optional<sampleCount> {
             double genDur = 0;
             if (isGenerator) {
@@ -222,7 +229,7 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
                else
                   genDur = duration;
                // round to nearest sample
-               return sampleCount{ (left.GetRate() * genDur) + 0.5 };
+               return sampleCount{ (wt.GetRate() * genDur) + 0.5 };
             }
             else
                return {};
@@ -250,12 +257,27 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
          // progress dialog correct
          if (len == 0 && genLength)
             len = *genLength;
-         SampleTrackSource source{ left, pRight, start, len, pollUser };
+         WideSampleSequence *pSeq = &chan;
+         if (pRight)
+            pSeq = &wt;
+         WideSampleSource source{
+            *pSeq, size_t(pRight ? 2 : 1), start, len, pollUser };
          // Assert source is safe to Acquire inBuffers
          assert(source.AcceptsBuffers(inBuffers));
          assert(source.AcceptsBlockSize(inBuffers.BlockSize()));
 
-         WaveTrackSink sink{ left, pRight, start, isGenerator, isProcessor,
+         // Make "wide" or "narrow" copy of the track if generating
+         // Old generator code may still proceed "interval-major" and later
+         // join mono into stereo
+         auto wideTrack =
+            (pRight && isGenerator) ? wt.EmptyCopy() : nullptr;
+         auto narrowTrack =
+            (!pRight && isGenerator) ? wt.EmptyCopy(1) : nullptr;
+         const auto pGenerated = wideTrack
+            ? wideTrack
+            : narrowTrack;
+
+         WaveTrackSink sink{ chan, pRight, pGenerated.get(), start, isProcessor,
             instance.NeedsDither() ? widestSampleFormat : narrowestSampleFormat
          };
          assert(sink.AcceptsBuffers(outBuffers));
@@ -269,20 +291,62 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
             else
                return recycledInstances.emplace_back(MakeInstance());
          };
-         bGoodResult = ProcessTrack(multichannel, factory, settings, source, sink,
-            genLength, sampleRate, left,
-            inBuffers, outBuffers);
-         if (bGoodResult)
-            sink.Flush(outBuffers,
-               mT0, ViewInfo::Get(*FindProject()).selectedRegion.t1());
+         bGoodResult = ProcessTrack(channel, factory, settings, source, sink,
+            genLength, sampleRate, wt, inBuffers, outBuffers);
+         if (bGoodResult) {
+            sink.Flush(outBuffers);
+            bGoodResult = sink.IsOk();
+            if (bGoodResult && pGenerated) {
+               if (!results)
+                  results = TrackList::Temporary(nullptr, pGenerated);
+               else {
+                  results->Add(pGenerated);
+                  if (!multichannel && !isFirst && narrowTrack) {
+                     // Generated a stereo track, in channel-major fashion.
+                     // Get the last track but one -- generated in the previous
+                     // pass
+                     const auto pLast =
+                        static_cast<WaveTrack*>(*std::next(results->rbegin()));
+                     pLast->ZipClips();
+                  }
+               }
+            }
+         }
          if (!bGoodResult)
             return;
          ++count;
-      },
-      [&](Track *t) {
+      };
+   const auto defaultTrackVisitor =
+      [&](Track &t) {
          if (SyncLock::IsSyncLockSelected(t))
-            t->SyncLockAdjust(mT1, mT0 + duration);
-      }
+            t.SyncLockAdjust(mT1, mT0 + duration);
+      };
+
+   outputs.Any().VisitWhile(bGoodResult,
+      [&](auto &&fallthrough){ return [&](WaveTrack &wt) {
+         if (!wt.GetSelected())
+            return fallthrough();
+         const auto channels = wt.Channels();
+         if (multichannel)
+            waveTrackVisitor(wt, **channels.begin(), true);
+         else {
+            bool first = true;
+            for (const auto pChannel : channels) {
+               waveTrackVisitor(wt, *pChannel, first);
+               first = false;
+            }
+         }
+         if (results) {
+            const auto t1 = ViewInfo::Get(*FindProject()).selectedRegion.t1();
+            PasteTimeWarper warper { t1,
+                                     mT0 + (*results->begin())->GetEndTime() };
+            wt.ClearAndPaste(mT0, t1,
+               static_cast<WaveTrack&>(*results->DetachFirst()),
+               true, true, &warper);
+            results.reset();
+         }
+      }; },
+      defaultTrackVisitor
    );
 
    if (bGoodResult && GetType() == EffectTypeGenerate)
@@ -291,11 +355,11 @@ bool PerTrackEffect::ProcessPass(Instance &instance, EffectSettings &settings)
    return bGoodResult;
 }
 
-bool PerTrackEffect::ProcessTrack(bool multi, const Factory &factory,
+bool PerTrackEffect::ProcessTrack(int channel, const Factory &factory,
    EffectSettings &settings,
    AudioGraph::Source &upstream, AudioGraph::Sink &sink,
    std::optional<sampleCount> genLength,
-   const double sampleRate, const Track &track,
+   const double sampleRate, const SampleTrack &wt,
    Buffers &inBuffers, Buffers &outBuffers)
 {
    assert(upstream.AcceptsBuffers(inBuffers));
@@ -305,8 +369,9 @@ bool PerTrackEffect::ProcessTrack(bool multi, const Factory &factory,
    assert(upstream.AcceptsBlockSize(blockSize));
    assert(blockSize == outBuffers.BlockSize());
 
-   auto pSource = AudioGraph::EffectStage::Create( multi, upstream, inBuffers,
-      factory, settings, sampleRate, genLength, track );
+   auto pSource = EffectStage::Create(
+      channel, static_cast<const WideSampleSequence&>(wt).NChannels(), upstream,
+      inBuffers, factory, settings, sampleRate, genLength);
    if (!pSource)
       return false;
    assert(pSource->AcceptsBlockSize(blockSize)); // post of ctor
@@ -314,4 +379,16 @@ bool PerTrackEffect::ProcessTrack(bool multi, const Factory &factory,
 
    AudioGraph::Task task{ *pSource, outBuffers, sink };
    return task.RunLoop();
+}
+
+std::shared_ptr<EffectOutputTracks> PerTrackEffect::MakeOutputTracks()
+{
+   return mpOutputTracks =
+      std::make_shared<EffectOutputTracks>(*mTracks, GetType(),
+         EffectOutputTracks::TimeInterval{ mT0, mT1 }, true);
+}
+
+void PerTrackEffect::DestroyOutputTracks() const
+{
+   mpOutputTracks.reset();
 }

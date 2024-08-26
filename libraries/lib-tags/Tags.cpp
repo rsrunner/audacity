@@ -265,33 +265,18 @@ Tags & Tags::operator=(const Tags & src)
 
 void Tags::LoadDefaults()
 {
-   wxString path;
-   wxString name;
    wxString value;
-   long ndx;
-   bool cont;
-
-   // Set the parent group
-   path = gPrefs->GetPath();
-   gPrefs->SetPath(wxT("/Tags"));
-
-   // Process all entries in the group
-   cont = gPrefs->GetFirstEntry(name, ndx);
-   while (cont) {
-      gPrefs->Read(name, &value, wxT(""));
-
-      if (name == wxT("ID3V2")) {
+   auto tagsGroup = gPrefs->BeginGroup("/Tags");
+   for(const auto& key : gPrefs->GetChildKeys())
+   {
+      gPrefs->Read(key, &value, {});
+      if(key == wxT("ID3V2")) {
          // LLL:  This is obsolute, but it must be handled and ignored.
       }
       else {
-         SetTag(name, value);
+         SetTag(key, value);
       }
-
-      cont = gPrefs->GetNextEntry(name, ndx);
    }
-
-   // Restore original group
-   gPrefs->SetPath(path);
 }
 
 bool Tags::IsEmpty()
@@ -309,6 +294,11 @@ void Tags::Clear()
 {
    mXref.clear();
    mMap.clear();
+}
+
+size_t Tags::Count() const
+{
+   return mMap.size();
 }
 
 namespace {

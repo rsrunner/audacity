@@ -18,23 +18,23 @@ Paul Licameli
 #include "AttachedVirtualFunction.h"
 #include "../../UIHandle.h"
 
+class ChannelGroupInterval;
 class SnapManager;
 class Track;
 using TrackArray = std::vector<Track*>;
 class TrackList;
 
 class Track;
-class TrackInterval;
 
 class ViewInfo;
 class wxMouseState;
 
-//! Abstract base class for policies to manipulate a track type with the Time Shift tool
+//! Abstract base class for policies to manipulate a track type for Time Shift
 class AUDACITY_DLL_API TrackShifter {
 public:
    TrackShifter();
-   TrackShifter(const TrackShifter&) PROHIBITED;
-   TrackShifter &operator=(const TrackShifter&) PROHIBITED;
+   TrackShifter(const TrackShifter&) = delete;
+   TrackShifter &operator=(const TrackShifter&) = delete;
 
    virtual ~TrackShifter() = 0;
    //! There is always an associated track
@@ -66,7 +66,7 @@ public:
       HitTestParams *pParams = nullptr //!< Optional extra information
    ) = 0;
 
-   using Intervals = std::vector<TrackInterval>;
+   using Intervals = std::vector<std::shared_ptr<ChannelGroupInterval>>;
 
    //! Return special intervals of the track that will not move
    const Intervals &FixedIntervals() const { return mFixed; }
@@ -75,15 +75,30 @@ public:
    const Intervals &MovingIntervals() const { return mMoving; }
    
    //! Change intervals satisfying a predicate from fixed to moving
-   void UnfixIntervals(
-      std::function< bool( const TrackInterval& ) > pred );
+   void UnfixIntervals(std::function<bool(const ChannelGroupInterval&)> pred);
 
    //! Change all intervals from fixed to moving
    void UnfixAll();
 
+   //! A simple time interval
+   /*!
+    @invariant `Start() <= End()`
+    */
+   struct TimeInterval {
+      TimeInterval(double start, double end)
+         : mStart{ start }, mEnd{ std::max(start, end) }
+      {}
+      
+      double Start() const { return mStart; }
+      double End() const { return mEnd; }
+   private:
+      const double mStart;
+      const double mEnd;
+   };
+
    //! Notifies the shifter that a region is selected, so it may update its fixed and moving intervals
    /*! Default behavior:  if any part of the track is selected, unfix all parts of it. */
-   virtual void SelectInterval( const TrackInterval &interval );
+   virtual void SelectInterval(TimeInterval interval);
 
    //! Whether unfixing of an interval should propagate to all overlapping intervals in the sync lock group
    virtual bool SyncLocks() = 0;
@@ -111,31 +126,42 @@ public:
     */
    virtual double AdjustOffsetSmaller( double desiredOffset );
 
-   //! Whether intervals may migrate to the other track, not yet checking all placement constraints */
-   /*! Default implementation returns false */
-   virtual bool MayMigrateTo( Track &otherTrack );
+   //! Whether intervals may migrate to the other track, not yet checking all
+   //! placement constraints
+   /*!
+    Default implementation returns false
+    */
+   virtual bool MayMigrateTo(Track &otherTrack);
 
    //! Remove all moving intervals from the track, if possible
-   /*! Default implementation does nothing */
+   /*!
+    Default implementation does nothing
+    */
    virtual Intervals Detach();
 
-   //! Test whether intervals can fit into another track, maybe adjusting the offset slightly
+   //! Test whether intervals can fit into another track, maybe adjusting the
+   //! offset slightly
    /*! Default implementation does nothing and returns false */
    virtual bool AdjustFit(
       const Track &otherTrack,
       const Intervals &intervals, /*!<
-         Assume these came from Detach() and only after MayMigrateTo returned true for otherTrack */
+         Assume these came from Detach() and only after MayMigrateTo returned
+         true for otherTrack */
       double &desiredOffset, //!< [in,out]
-      double tolerance //! Nonnegative ceiling for allowed changes in fabs(desiredOffset)
+      double tolerance /*!< Nonnegative ceiling for allowed changes in
+         fabs(desiredOffset) */
    );
 
    //! Put moving intervals into the track, which may have migrated from another
-   /*! @return success
-   
-       In case of failure, track states are unspecified
-    
-       Default implementation does nothing and returns true */
-   virtual bool Attach( Intervals intervals, double offset );
+   /*!
+    The ChannelGroupInterval objects pointed to by `intervals` will not be used
+    again.  The shifter should repopupate mMoving with new ChannelGroupInterval
+    objects to reflect the new state of the track.
+    In case of failure, track states are unspecified
+    @return success
+    Default implementation does nothing and returns true
+    */
+   virtual bool Attach(Intervals intervals, double offset);
 
    //! When dragging is done, do (once) the final steps of migration (which may be expensive)
    /*! @return success
@@ -156,12 +182,15 @@ public:
 
 protected:
    /*! Unfix any of the intervals that intersect the given one; may be useful to override `SelectInterval()` */
-   void CommonSelectInterval( const TrackInterval &interval );
+   void CommonSelectInterval(TimeInterval interval);
 
-   /*! May be useful to override `MayMigrateTo()`, if certain other needed overrides are given.
-       Returns true, iff: tracks have same type, and corresponding positions in their channel groups,
-       which have same size */
-   bool CommonMayMigrateTo( Track &otherTrack );
+   /*!
+    May be useful to override `MayMigrateTo()`, if certain other needed
+    overrides are given.
+    Returns true, iff: tracks have same type, and their channel groups have same
+    width
+    */
+   bool CommonMayMigrateTo(Track &otherTrack);
 
    //! Derived class constructor can initialize all intervals reported by the track as fixed, none moving
    /*! This can't be called by the base class constructor, when GetTrack() isn't yet callable */
@@ -179,23 +208,25 @@ private:
       Becomes false after `UnfixAll()`, even if there are no intervals, or if any one interval was unfixed */
 };
 
-//! Used in default of other reimplementations to shift any track as a whole, invoking Track::Offset()
+//! Used in default of other reimplementations to shift any track as a whole,
+//! invoking Track::ShiftBy()
 class CoarseTrackShifter final : public TrackShifter {
 public:
-   CoarseTrackShifter( Track &track );
+   CoarseTrackShifter(Track &track);
    ~CoarseTrackShifter() override;
    Track &GetTrack() const override { return *mpTrack; }
 
-   HitTestResult HitTest( double, const ViewInfo&, HitTestParams* ) override;
+   HitTestResult HitTest(double, const ViewInfo&, HitTestParams*) override;
 
    //! Returns false
    bool SyncLocks() override;
 
 private:
-   std::shared_ptr<Track> mpTrack;
+   const std::shared_ptr<Track> mpTrack;
 };
 
 struct MakeTrackShifterTag;
+//! Declare an open method to get time shifting policy for the track
 using MakeTrackShifter = AttachedVirtualFunction<
    MakeTrackShifterTag, std::unique_ptr<TrackShifter>, Track, AudacityProject&>;
 DECLARE_EXPORTED_ATTACHED_VIRTUAL(AUDACITY_DLL_API, MakeTrackShifter);
@@ -205,8 +236,8 @@ class ViewInfo;
 struct AUDACITY_DLL_API ClipMoveState {
    ClipMoveState() = default;
 
-   ClipMoveState(const ClipMoveState&) PROHIBITED;
-   ClipMoveState& operator =(const ClipMoveState&) PROHIBITED;
+   ClipMoveState(const ClipMoveState&) = delete;
+   ClipMoveState& operator =(const ClipMoveState&) = delete;
 
    ClipMoveState(ClipMoveState&&) = default;
    ClipMoveState& operator =(ClipMoveState&&) = default;
@@ -222,18 +253,18 @@ struct AUDACITY_DLL_API ClipMoveState {
          If null, implies `Track`, overriding previous argument */
       double clickTime,
       const ViewInfo &viewInfo,
-      TrackList &trackList, bool syncLocked );
+      TrackList &trackList, bool syncLocked);
 
    //! Return pointer to the first fixed interval of the captured track, if there is one
    /*! Pointer may be invalidated by operations on the associated TrackShifter */
-   const TrackInterval *CapturedInterval() const;
+   const ChannelGroupInterval *CapturedInterval() const;
 
    //! Do sliding of tracks and intervals, maybe adjusting the offset
    /*! @return actual slide amount, maybe adjusted toward zero from desired */
-   double DoSlideHorizontal( double desiredSlideAmount );
+   double DoSlideHorizontal(double desiredSlideAmount);
 
    //! Offset tracks or intervals horizontally, without adjusting the offset
-   void DoHorizontalOffset( double offset );
+   void DoHorizontalOffset(double offset);
 
    std::shared_ptr<Track> mCapturedTrack;
 
@@ -265,38 +296,39 @@ class AUDACITY_DLL_API TimeShiftHandle : public UIHandle
       (const AudacityProject *pProject, bool unsafe);
 
 public:
-   explicit TimeShiftHandle
-   ( const std::shared_ptr<Track> &pTrack, bool gripHit );
+   TimeShiftHandle(std::shared_ptr<Track> pTrack, bool gripHit);
 
    TimeShiftHandle &operator=(TimeShiftHandle&&) = default;
 
    bool IsGripHit() const { return mGripHit; }
 
-   static UIHandlePtr HitAnywhere
-      (std::weak_ptr<TimeShiftHandle> &holder,
-       const std::shared_ptr<Track> &pTrack, bool gripHit);
-   static UIHandlePtr HitTest
-      (std::weak_ptr<TimeShiftHandle> &holder,
-       const wxMouseState &state, const wxRect &rect,
-       const std::shared_ptr<Track> &pTrack);
+   static UIHandlePtr HitAnywhere(
+      std::weak_ptr<TimeShiftHandle> &holder,
+      const std::shared_ptr<Track> &pTrack, bool gripHit);
+   static UIHandlePtr HitTest(
+      std::weak_ptr<TimeShiftHandle> &holder,
+      const wxMouseState &state, const wxRect &rect,
+      const std::shared_ptr<Track> &pTrack);
 
    virtual ~TimeShiftHandle();
 
+   std::shared_ptr<const Track> FindTrack() const override;
+
    void Enter(bool forward, AudacityProject *) override;
 
-   Result Click
-      (const TrackPanelMouseEvent &event, AudacityProject *pProject) override;
+   Result Click(
+      const TrackPanelMouseEvent &event, AudacityProject *pProject) override;
 
-   Result Drag
-      (const TrackPanelMouseEvent &event, AudacityProject *pProject) override;
+   Result Drag(
+      const TrackPanelMouseEvent &event, AudacityProject *pProject) override;
 
-   HitTestPreview Preview
-      (const TrackPanelMouseState &state, AudacityProject *pProject)
+   HitTestPreview Preview(
+      const TrackPanelMouseState &state, AudacityProject *pProject)
       override;
 
-   Result Release
-      (const TrackPanelMouseEvent &event, AudacityProject *pProject,
-       wxWindow *pParent) override;
+   Result Release(
+      const TrackPanelMouseEvent &event, AudacityProject *pProject,
+      wxWindow *pParent) override;
 
    Result Cancel(AudacityProject *pProject) override;
 
@@ -304,18 +336,19 @@ public:
 
    bool Clicked() const;
 
-protected:
    std::shared_ptr<Track> GetTrack() const;
+
+protected:
    //There were attempt to move clip/track horizontally, or to move it vertically
    bool WasMoved() const;
+
 private:
 
    // Try to move clips from one track to another with offset, allowing 1px tolerance,
    // that will move intervals and reset the origin
    void DoSlideVertical(
       ViewInfo &viewInfo, wxCoord xx,
-      TrackList &trackList,
-      const std::shared_ptr<Track>& dstTrack, double& desiredSlideAmount );
+      TrackList &trackList, Track *dstTrack, double& desiredSlideAmount);
 
    // TrackPanelDrawable implementation
    void Draw(

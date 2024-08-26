@@ -6,7 +6,7 @@ message( STATUS "========== Configuring ${TARGET} ==========" )
 
 def_vars()
 
-list( APPEND SOURCES
+set( SOURCES
    ShelfFilter.ny
    SpectralEditMulti.ny
    SpectralEditParametricEQ.ny
@@ -18,7 +18,6 @@ list( APPEND SOURCES
    crossfadeclips.ny
    crossfadetracks.ny
    delay.ny
-   eq-xml-to-txt-converter.ny
    equalabel.ny
    highpass.ny
    label-sounds.ny
@@ -35,7 +34,6 @@ list( APPEND SOURCES
    sample-data-import.ny
    spectral-delete.ny
    tremolo.ny
-   vocalrediso.ny
    vocoder.ny
 )
 

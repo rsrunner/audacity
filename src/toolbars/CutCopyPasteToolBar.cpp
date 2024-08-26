@@ -47,14 +47,13 @@
 
 #include "AllThemeResources.h"
 #include "ImageManipulation.h"
-#include "../Menus.h"
 #include "Prefs.h"
 #include "Project.h"
 #include "UndoManager.h"
 #include "../widgets/AButton.h"
 
-#include "../commands/CommandContext.h"
-#include "../commands/CommandManager.h"
+#include "CommandContext.h"
+#include "CommandManager.h"
 #include "../commands/CommandDispatch.h"
 
 #include "ToolManager.h"
@@ -134,7 +133,8 @@ void CutCopyPasteToolBar::Populate()
    SetBackgroundColour( theTheme.Colour( clrMedium  ) );
    MakeButtonBackgroundsSmall();
 
-   Add(mToolSizer = safenew wxGridSizer(2, 2, 1, 1));
+   Add(mToolSizer = safenew wxGridSizer(2, 2, toolbarSpacing, toolbarSpacing),
+      0, wxALIGN_CENTRE | wxALL, toolbarSpacing);
 
    /* Buttons */
    // Tooltips match menu entries.

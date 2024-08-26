@@ -87,14 +87,9 @@ void RecordingPrefs::PopulateOrExchange(ShuttleGui & S)
    S.StartStatic(XO("Options"));
    {
       // Start wording of options with a verb, if possible.
-      S.TieCheckBox(XXO("Play &other tracks while recording (overdub)"),
-                     {wxT("/AudioIO/Duplex"),
-#ifdef EXPERIMENTAL_DA
-                      false
-#else
-                      true
-#endif
-                     });
+      S.TieCheckBox(XXO("Hear &other tracks while recording (overdub)"),
+                     {wxT("/AudioIO/Duplex"), 
+                      true});
 
 //#if defined(__WXMAC__)
 // Bug 388.  Feature not supported on any Mac Hardware.
@@ -103,7 +98,7 @@ void RecordingPrefs::PopulateOrExchange(ShuttleGui & S)
                     {wxT("/AudioIO/Playthrough"),
                      false});
 #endif
-      S.TieCheckBox(XXO("&Software playthrough of input"),
+      S.TieCheckBox(XXO("Audible input &monitoring"),
                     {wxT("/AudioIO/SWPlaythrough"),
                      false});
 #if !defined(__WXMAC__)
@@ -234,34 +229,32 @@ void RecordingPrefs::PopulateOrExchange(ShuttleGui & S)
       S.EndStatic();
    #endif
 
-#ifdef EXPERIMENTAL_PUNCH_AND_ROLL
-      S.StartStatic(XO("Punch and Roll Recording"));
+   S.StartStatic(XO("Punch and Roll Recording"));
+   {
+      S.StartThreeColumn();
       {
-         S.StartThreeColumn();
-         {
-            auto w = S
-               .NameSuffix(XO("seconds"))
-               .TieNumericTextBox(XXO("Pre-ro&ll:"),
-                  {AUDIO_PRE_ROLL_KEY,
-                   DEFAULT_PRE_ROLL_SECONDS},
-                  9);
-            S.AddUnits(XO("seconds"));
-         }
-         {
-            auto w = S
-               .NameSuffix(XO("milliseconds"))
-               .TieNumericTextBox(XXO("Cross&fade:"),
-                  {AUDIO_ROLL_CROSSFADE_KEY,
-                   DEFAULT_ROLL_CROSSFADE_MS},
-                  9);
-            S.AddUnits(XO("milliseconds"));
-         }
-         S.EndThreeColumn();
+         auto w = S
+            .NameSuffix(XO("seconds"))
+            .TieNumericTextBox(XXO("Pre-ro&ll:"),
+               {AUDIO_PRE_ROLL_KEY,
+                DEFAULT_PRE_ROLL_SECONDS},
+               9);
+         S.AddUnits(XO("seconds"));
       }
-      S.EndStatic();
-#endif
+      {
+         auto w = S
+            .NameSuffix(XO("milliseconds"))
+            .TieNumericTextBox(XXO("Cross&fade:"),
+               {AUDIO_ROLL_CROSSFADE_KEY,
+                DEFAULT_ROLL_CROSSFADE_MS},
+               9);
+         S.AddUnits(XO("milliseconds"));
+      }
+      S.EndThreeColumn();
+   }
+   S.EndStatic();
 
-      S.EndScroller();
+   S.EndScroller();
 }
 
 bool RecordingPrefs::Commit()

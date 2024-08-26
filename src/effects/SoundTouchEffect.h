@@ -20,6 +20,7 @@
 #define __AUDACITY_EFFECT_SOUNDTOUCH__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 
 // forward declaration of a class defined in SoundTouch.h
 // which is not included here
@@ -29,12 +30,15 @@ namespace soundtouch { class SoundTouch; }
 class TimeWarper;
 class LabelTrack;
 class NoteTrack;
+class WaveChannel;
 class WaveTrack;
 
-class EffectSoundTouch /* not final */ : public StatefulEffect
+class EffectSoundTouch /* not final */ :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
-   
+
    // EffectSoundTouch implementation
 
 #ifdef USE_MIDI
@@ -51,26 +55,26 @@ protected:
                               const TimeWarper &warper,
                               bool preserveLength);
 
-   double mCurT0;
-   double mCurT1;
-
 private:
    bool ProcessLabelTrack(LabelTrack *track, const TimeWarper &warper);
 #ifdef USE_MIDI
    bool ProcessNoteTrack(NoteTrack *track, const TimeWarper &warper);
 #endif
    bool ProcessOne(soundtouch::SoundTouch *pSoundTouch,
-      WaveTrack * t, sampleCount start, sampleCount end,
+      WaveChannel &orig, WaveTrack &out, sampleCount start, sampleCount end,
       const TimeWarper &warper);
    bool ProcessStereo(soundtouch::SoundTouch *pSoundTouch,
-      WaveTrack* leftTrack, WaveTrack* rightTrack,
+      WaveTrack &orig, WaveTrack &out,
       sampleCount start, sampleCount end,
       const TimeWarper &warper);
    bool ProcessStereoResults(soundtouch::SoundTouch *pSoundTouch,
       const size_t outputCount,
-      WaveTrack* outputLeftTrack,
-      WaveTrack* outputRightTrack);
-   void Finalize(WaveTrack* orig, WaveTrack* out, const TimeWarper &warper);
+      WaveChannel &outputLeftTrack,
+      WaveChannel &outputRightTrack);
+   /*!
+    @pre `out.NChannels() == orig.NChannels()`
+    */
+   void Finalize(WaveTrack &orig, WaveTrack &out, const TimeWarper &warper);
 
    bool   mPreserveLength;
 

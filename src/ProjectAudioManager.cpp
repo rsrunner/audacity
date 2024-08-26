@@ -15,30 +15,34 @@ Paul Licameli split from ProjectManager.cpp
 #include <wx/frame.h>
 #include <wx/statusbr.h>
 #include <algorithm>
+#include <numeric>
 
 #include "AudioIO.h"
 #include "BasicUI.h"
+#include "CommandManager.h"
 #include "CommonCommandFlags.h"
 #include "DefaultPlaybackPolicy.h"
-#include "Menus.h"
 #include "Meter.h"
 #include "Mix.h"
+#include "PendingTracks.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
 #include "ProjectFileIO.h"
 #include "ProjectHistory.h"
 #include "ProjectRate.h"
-#include "ProjectSettings.h"
 #include "ProjectStatus.h"
 #include "ProjectWindows.h"
 #include "ScrubState.h"
-#include "TrackPanelAx.h"
+#include "TrackFocus.h"
+#include "prefs/TracksPrefs.h"
+#include "TransportUtilities.h"
 #include "UndoManager.h"
 #include "ViewInfo.h"
+#include "Viewport.h"
+#include "WaveClip.h"
 #include "WaveTrack.h"
-#include "toolbars/ToolManager.h"
 #include "tracks/ui/Scrubbing.h"
-#include "tracks/ui/TrackView.h"
+#include "tracks/ui/ChannelView.h"
 #include "widgets/MeterPanelBase.h"
 #include "AudacityMessageBox.h"
 
@@ -67,7 +71,7 @@ ProjectAudioManager::ProjectAudioManager( AudacityProject &project )
 {
    static ProjectStatus::RegisteredStatusWidthFunction
       registerStatusWidthFunction{ StatusWidthFunction };
-   mCheckpointFailureSubcription = ProjectFileIO::Get(project)
+   mCheckpointFailureSubscription = ProjectFileIO::Get(project)
       .Subscribe(*this, &ProjectAudioManager::OnCheckpointFailure);
 }
 
@@ -87,7 +91,7 @@ auto ProjectAudioManager::StatusWidthFunction(
    const AudacityProject &project, StatusBarField field )
    -> ProjectStatus::StatusWidthResult
 {
-   if ( field == rateStatusBarField ) {
+   if ( field == RateStatusBarField() ) {
       auto &audioManager = ProjectAudioManager::Get( project );
       int rate = audioManager.mDisplayedRate;
       return {
@@ -112,7 +116,7 @@ public:
 
    bool Done(PlaybackSchedule &schedule, unsigned long) override;
 
-   double OffsetTrackTime( PlaybackSchedule &schedule, double offset ) override;
+   double OffsetSequenceTime( PlaybackSchedule &schedule, double offset ) override;
 
    PlaybackSlice GetPlaybackSlice(
       PlaybackSchedule &schedule, size_t available) override;
@@ -183,17 +187,17 @@ void CutPreviewPlaybackPolicy::Initialize(
 bool CutPreviewPlaybackPolicy::Done(PlaybackSchedule &schedule, unsigned long)
 {
    //! Called in the PortAudio thread
-   auto diff = schedule.GetTrackTime() - mEnd;
+   auto diff = schedule.GetSequenceTime() - mEnd;
    if (mReversed)
       diff *= -1;
    return sampleCount(diff * mRate) >= 0;
 }
 
-double CutPreviewPlaybackPolicy::OffsetTrackTime(
+double CutPreviewPlaybackPolicy::OffsetSequenceTime(
    PlaybackSchedule &schedule, double offset )
 {
    // Compute new time by applying the offset, jumping over the gap
-   auto time = schedule.GetTrackTime();
+   auto time = schedule.GetSequenceTime();
    if (offset >= 0) {
       auto space = std::clamp(mGapLeft - time, 0.0, offset);
       time += space;
@@ -279,7 +283,7 @@ bool CutPreviewPlaybackPolicy::RepositionPlayback( PlaybackSchedule &,
       auto newTime = GapEnd();
       for (auto &pMixer : playbackMixers)
          pMixer->Reposition(newTime, true);
-      // Tell TrackBufferExchange that we aren't done yet
+      // Tell SequenceBufferExchange that we aren't done yet
       return false;
    }
    return true;
@@ -328,7 +332,7 @@ int ProjectAudioManager::PlayPlayRegion(const SelectedRegion &selectedRegion,
 
    AudacityProject *p = &mProject;
 
-   auto &tracks = TrackList::Get( *p );
+   auto &tracks = TrackList::Get(*p);
 
    mLastPlayMode = mode;
 
@@ -421,7 +425,7 @@ int ProjectAudioManager::PlayPlayRegion(const SelectedRegion &selectedRegion,
                return std::make_unique<CutPreviewPlaybackPolicy>(tless, diff);
             };
          token = gAudioIO->StartStream(
-            TransportTracks{ TrackList::Get(*p), false, nonWaveToo },
+            MakeTransportTracks(TrackList::Get(*p), false, nonWaveToo),
             tcp0, tcp1, tcp1, myOptions);
       }
       else {
@@ -432,7 +436,7 @@ int ProjectAudioManager::PlayPlayRegion(const SelectedRegion &selectedRegion,
                t1 = latestEnd;
          }
          token = gAudioIO->StartStream(
-            TransportTracks{ tracks, false, nonWaveToo },
+            MakeTransportTracks(tracks, false, nonWaveToo),
             t0, t1, mixerLimit, options);
       }
       if (token != 0) {
@@ -551,11 +555,6 @@ void ProjectAudioManager::Stop(bool stopStream /* = true*/)
          meter->Clear();
       }
    }
-
-   // To do: eliminate this, use an event instead
-   const auto toolbar = ToolManager::Get( *project ).GetToolBar(wxT("Scrub"));
-   if (toolbar)
-      toolbar->EnableDisableButtons();
 }
 
 
@@ -586,43 +585,42 @@ WritableSampleTrackArray ProjectAudioManager::ChooseExistingRecordingTracks(
    if (!strictRules && !selectedOnly)
       return {};
 
-   auto &trackList = TrackList::Get( *p );
-   std::vector<unsigned> channelCounts;
+   auto &trackList = TrackList::Get(*p);
    WritableSampleTrackArray candidates;
-   const auto range = trackList.Leaders<WaveTrack>();
-   for ( auto candidate : selectedOnly ? range + &Track::IsSelected : range ) {
+   std::vector<unsigned> channelCounts;
+   size_t totalChannels = 0;
+   const auto range = trackList.Any<WaveTrack>();
+   for (auto candidate : selectedOnly ? range + &Track::IsSelected : range) {
       if (targetRate != RATE_NOT_SELECTED && candidate->GetRate() != targetRate)
          continue;
 
       // count channels in this track
-      const auto channels = TrackList::Channels( candidate );
-      unsigned nChannels = channels.size();
-
+      const auto nChannels = candidate->NChannels();
       if (strictRules && nChannels > recordingChannels) {
          // The recording would under-fill this track's channels
          // Can't use any partial accumulated results
          // either.  Keep looking.
          candidates.clear();
          channelCounts.clear();
+         totalChannels = 0;
          continue;
       }
       else {
          // Might use this but may have to discard some of the accumulated
          while(strictRules &&
-               nChannels + candidates.size() > recordingChannels) {
+               nChannels + totalChannels > recordingChannels) {
+            candidates.erase(candidates.begin());
             auto nOldChannels = channelCounts[0];
-            wxASSERT(nOldChannels > 0);
+            assert(nOldChannels > 0);
             channelCounts.erase(channelCounts.begin());
-            candidates.erase(candidates.begin(),
-                             candidates.begin() + nOldChannels);
+            totalChannels -= nOldChannels;
          }
+         candidates.push_back(candidate->SharedPointer<WaveTrack>());
          channelCounts.push_back(nChannels);
-         for ( auto channel : channels ) {
-            candidates.push_back(channel->SharedPointer<WaveTrack>());
-            if(candidates.size() == recordingChannels)
-               // Done!
-               return candidates;
-         }
+         totalChannels += nChannels;
+         if (totalChannels >= recordingChannels)
+            // Done!
+            return candidates;
       }
    }
 
@@ -659,7 +657,7 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
       // making sure they all have the same rate
       const auto selectedTracks{ GetPropertiesOfSelected(*p) };
       const int rateOfSelected{ selectedTracks.rateOfSelected };
-      const int numberOfSelected{ selectedTracks.numberOfSelected };
+      const bool anySelected{ selectedTracks.anySelected };
       const bool allSameRate{ selectedTracks.allSameRate };
 
       if (!allSameRate) {
@@ -672,17 +670,17 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
       }
 
       if (appendRecord) {
-         const auto trackRange = TrackList::Get( *p ).Any< const WaveTrack >();
-
          // Try to find wave tracks to record into.  (If any are selected,
          // try to choose only from them; else if wave tracks exist, may record into any.)
          existingTracks = ChooseExistingRecordingTracks(*p, true, rateOfSelected);
          if (!existingTracks.empty()) {
             t0 = std::max(t0,
-               (trackRange + &Track::IsSelected).max(&Track::GetEndTime));
+               TrackList::Get(*p).Selected<const WaveTrack>()
+               .max(&Track::GetEndTime));
+            options.rate = rateOfSelected;
          }
          else {
-            if (numberOfSelected > 0 && rateOfSelected != options.rate) {
+            if (anySelected && rateOfSelected != options.rate) {
                AudacityMessageBox(XO(
                   "Too few tracks are selected for recording at this sample rate.\n"
                   "(Audacity requires two channels at the same sample rate for\n"
@@ -696,13 +694,13 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
             existingTracks = ChooseExistingRecordingTracks(*p, false, options.rate);
             if (!existingTracks.empty())
             {
-               auto endTime = std::max_element(
-                  existingTracks.begin(),
-                  existingTracks.end(),
-                  [](const auto& a, const auto& b) {
-                     return a->GetEndTime() < b->GetEndTime();
+               const auto endTime = accumulate(
+                  existingTracks.begin(), existingTracks.end(),
+                  std::numeric_limits<double>::lowest(),
+                  [](double acc, auto &pTrack) {
+                     return std::max(acc, pTrack->GetEndTime());
                   }
-               )->get()->GetEndTime();
+               );
 
                //If there is a suitable track, then adjust t0 so
                //that recording not starts before the end of that track
@@ -711,7 +709,7 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
             // If suitable tracks still not found, will record into NEW ones,
             // starting with t0
          }
-         
+
          // Whether we decided on NEW tracks or not:
          if (t1 <= selectedRegion.t0() && selectedRegion.t1() > selectedRegion.t0()) {
             t1 = selectedRegion.t1();   // record within the selection
@@ -721,25 +719,29 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
          }
       }
 
-      TransportTracks transportTracks;
+      TransportSequences transportTracks;
       if (UseDuplex()) {
          // Remove recording tracks from the list of tracks for duplex ("overdub")
          // playback.
          /* TODO: set up stereo tracks if that is how the user has set up
           * their preferences, and choose sample format based on prefs */
-         transportTracks = TransportTracks{ TrackList::Get( *p ), false, true };
+         transportTracks =
+            MakeTransportTracks(TrackList::Get( *p ), false, true);
          for (const auto &wt : existingTracks) {
-            auto end = transportTracks.playbackTracks.end();
-            auto it = std::find(transportTracks.playbackTracks.begin(), end, wt);
+            auto end = transportTracks.playbackSequences.end();
+            auto it = std::find_if(
+               transportTracks.playbackSequences.begin(), end,
+               [&wt](const auto& playbackSequence) {
+                  return playbackSequence->FindChannelGroup() ==
+                         wt->FindChannelGroup();
+               });
             if (it != end)
-               transportTracks.playbackTracks.erase(it);
+               transportTracks.playbackSequences.erase(it);
          }
       }
 
-      transportTracks.captureTracks = existingTracks;
-
-      if (rateOfSelected != RATE_NOT_SELECTED)
-         options.rate = rateOfSelected;
+      std::copy(existingTracks.begin(), existingTracks.end(),
+         back_inserter(transportTracks.captureSequences));
 
       DoRecord(*p, transportTracks, t0, t1, altAppearance, options);
    }
@@ -748,18 +750,12 @@ void ProjectAudioManager::OnRecord(bool altAppearance)
 bool ProjectAudioManager::UseDuplex()
 {
    bool duplex;
-   gPrefs->Read(wxT("/AudioIO/Duplex"), &duplex,
-#ifdef EXPERIMENTAL_DA
-      false
-#else
-      true
-#endif
-      );
+   gPrefs->Read(wxT("/AudioIO/Duplex"), &duplex, true);
    return duplex;
 }
 
 bool ProjectAudioManager::DoRecord(AudacityProject &project,
-   const TransportTracks &tracks,
+   const TransportSequences &sequences,
    double t0, double t1,
    bool altAppearance,
    const AudioIOStartStreamOptions &options)
@@ -769,7 +765,7 @@ bool ProjectAudioManager::DoRecord(AudacityProject &project,
    CommandFlag flags = AlwaysEnabledFlag; // 0 means recalc flags.
 
    // NB: The call may have the side effect of changing flags.
-   bool allowed = MenuManager::Get(project).TryToMakeActionAllowed(
+   bool allowed = CommandManager::Get(project).TryToMakeActionAllowed(
       flags,
       AudioIONotBusyFlag() | CanStopAudioStreamFlag());
 
@@ -781,78 +777,123 @@ bool ProjectAudioManager::DoRecord(AudacityProject &project,
    if (gAudioIO->IsBusy())
       return false;
 
-   projectAudioManager.SetAppending( !altAppearance );
+   projectAudioManager.SetAppending(!altAppearance);
 
    bool success = false;
 
-   auto transportTracks = tracks;
+   auto transportSequences = sequences;
 
    // Will replace any given capture tracks with temporaries
-   transportTracks.captureTracks.clear();
+   transportSequences.captureSequences.clear();
 
    const auto p = &project;
+   auto &trackList = TrackList::Get(project);
 
-   bool appendRecord = !tracks.captureTracks.empty();
+   bool appendRecord = !sequences.captureSequences.empty();
 
-   auto makeNewClipName = [&](WaveTrack* track) {
-       for (auto i = 1;; ++i)
-       {
-           //i18n-hint a numerical suffix added to distinguish otherwise like-named clips when new record started
-           auto name = XC("%s #%d", "clip name template").Format(track->GetName(), i).Translation();
-           if (track->FindClipByName(name) == nullptr)
-               return name;
-       }
+   auto insertEmptyInterval =
+   [&](WaveTrack &track, double t0, bool placeholder) {
+      wxString name;
+      for (auto i = 1; ; ++i) {
+         //i18n-hint a numerical suffix added to distinguish otherwise like-named clips when new record started
+         name = XC("%s #%d", "clip name template")
+            .Format(track.GetName(), i).Translation();
+         if (!track.HasClipNamed(name))
+            break;
+      }
+
+      auto clip = track.CreateClip(t0, name);
+      // So that the empty clip is not skipped for insertion:
+      clip->SetIsPlaceholder(true);
+      track.InsertInterval(clip, true);
+      if (!placeholder)
+         clip->SetIsPlaceholder(false);
+      return clip;
    };
+
+   auto &pendingTracks = PendingTracks::Get(project);
 
    {
       if (appendRecord) {
          // Append recording:
          // Pad selected/all wave tracks to make them all the same length
-         for (const auto &wt : tracks.captureTracks)
-         {
+         for (const auto &sequence : sequences.captureSequences) {
+            WaveTrack *wt{};
+            if (!(wt = dynamic_cast<WaveTrack *>(sequence.get()))) {
+               assert(false);
+               continue;
+            }
             auto endTime = wt->GetEndTime();
 
             // If the track was chosen for recording and playback both,
             // remember the original in preroll tracks, before making the
             // pending replacement.
-            bool prerollTrack = make_iterator_range(transportTracks.playbackTracks).contains(wt);
+            const auto shared = wt->SharedPointer<WaveTrack>();
+            // prerollSequences should be a subset of playbackSequences.
+            const auto &range = transportSequences.playbackSequences;
+            bool prerollTrack = any_of(range.begin(), range.end(),
+               [&](const auto &pSequence){
+                  return shared.get() == pSequence->FindChannelGroup(); });
             if (prerollTrack)
-                  transportTracks.prerollTracks.push_back(wt);
+               transportSequences.prerollSequences.push_back(shared);
 
             // A function that copies all the non-sample data between
             // wave tracks; in case the track recorded to changes scale
             // type (for instance), during the recording.
             auto updater = [](Track &d, const Track &s){
+               assert(d.NChannels() == s.NChannels());
                auto &dst = static_cast<WaveTrack&>(d);
                auto &src = static_cast<const WaveTrack&>(s);
-               dst.Reinit(src);
+               dst.Init(src);
             };
-
-            // Get a copy of the track to be appended, to be pushed into
-            // undo history only later.
-            auto pending = std::static_pointer_cast<WaveTrack>(
-               TrackList::Get( *p ).RegisterPendingChangedTrack(
-                  updater, wt.get() ) );
 
             // End of current track is before or at recording start time.
             // Less than or equal, not just less than, to ensure a clip boundary.
             // when append recording.
-            if (endTime <= t0) {
-               pending->CreateClip(t0, makeNewClipName(pending.get()));
-            }
-            transportTracks.captureTracks.push_back(pending);
+            //const auto pending = static_cast<WaveTrack*>(newTrack);
+            const auto lastClip = wt->GetRightmostClip();
+            // RoundedT0 to have a new clip created when punch-and-roll
+            // recording with the cursor in the second half of the space
+            // between two samples
+            // (https://github.com/audacity/audacity/issues/5113#issuecomment-1705154108)
+            const auto recordingStart =
+               std::round(t0 * wt->GetRate()) / wt->GetRate();
+            const auto recordingStartsBeforeTrackEnd =
+               lastClip && recordingStart < lastClip->GetPlayEndTime();
+            // Recording doesn't start before the beginning of the last clip
+            // - or the check for creating a new clip or not should be more
+            // general than that ...
+            assert(
+               !recordingStartsBeforeTrackEnd ||
+               lastClip->WithinPlayRegion(recordingStart));
+            WaveTrack::IntervalHolder newClip{};
+            if (!recordingStartsBeforeTrackEnd ||
+               lastClip->HasPitchOrSpeed())
+               newClip = insertEmptyInterval(*wt, t0, true);
+            // Get a copy of the track to be appended, to be pushed into
+            // undo history only later.
+            const auto pending = static_cast<WaveTrack*>(
+               pendingTracks.RegisterPendingChangedTrack(updater, wt)
+            );
+            // Source clip was marked as placeholder so that it would not be
+            // skipped in clip copying.  Un-mark it and its copy now
+            if (newClip)
+               newClip->SetIsPlaceholder(false);
+            if (auto copiedClip = pending->NewestOrNewClip())
+               copiedClip->SetIsPlaceholder(false);
+            transportSequences.captureSequences
+               .push_back(pending->SharedPointer<WaveTrack>());
          }
-         TrackList::Get( *p ).UpdatePendingTracks();
+         pendingTracks.UpdatePendingTracks();
       }
 
-      if( transportTracks.captureTracks.empty() )
-      {   // recording to NEW track(s).
+      if (transportSequences.captureSequences.empty()) {
+         // recording to NEW track(s).
          bool recordingNameCustom, useTrackNumber, useDateStamp, useTimeStamp;
          wxString defaultTrackName, defaultRecordingTrackName;
 
          // Count the tracks.
-         auto &trackList = TrackList::Get( *p );
-         auto numTracks = trackList.Leaders< const WaveTrack >().size();
+         auto numTracks = trackList.Any<const WaveTrack>().size();
 
          auto recordingChannels = std::max(1, AudioIORecordChannels.Read());
 
@@ -865,25 +906,26 @@ bool ProjectAudioManager::DoRecord(AudacityProject &project,
 
          wxString baseTrackName = recordingNameCustom? defaultRecordingTrackName : defaultTrackName;
 
-         Track *first {};
-         for (int c = 0; c < recordingChannels; c++) {
-            auto newTrack = WaveTrackFactory::Get( *p ).Create();
-            if (!first)
-               first = newTrack.get();
-
+         auto newTracks =
+            WaveTrackFactory::Get(*p).CreateMany(recordingChannels);
+         const auto first = *newTracks->begin();
+         int trackCounter = 0;
+         const auto minimizeChannelView = recordingChannels > 2
+            && !TracksPrefs::TracksFitVerticallyZoomed.Read();
+         for (auto newTrack : newTracks->Any<WaveTrack>()) {
             // Quantize bounds to the rate of the new track.
-            if (c == 0) {
+            if (newTrack == first) {
                if (t0 < DBL_MAX)
-                  t0 = newTrack->LongSamplesToTime(newTrack->TimeToLongSamples(t0));
+                  t0 = newTrack->SnapToSample(t0);
                if (t1 < DBL_MAX)
-                  t1 = newTrack->LongSamplesToTime(newTrack->TimeToLongSamples(t1));
+                  t1 = newTrack->SnapToSample(t1);
             }
 
-            newTrack->SetOffset(t0);
+            newTrack->MoveTo(t0);
             wxString nameSuffix = wxString(wxT(""));
 
             if (useTrackNumber) {
-               nameSuffix += wxString::Format(wxT("%d"), 1 + (int) numTracks + c);
+               nameSuffix += wxString::Format(wxT("%d"), 1 + (int) numTracks + trackCounter++);
             }
 
             if (useDateStamp) {
@@ -903,32 +945,37 @@ bool ProjectAudioManager::DoRecord(AudacityProject &project,
             // ISO standard would be nice, but ":" is unsafe for file name.
             nameSuffix.Replace(wxT(":"), wxT("-"));
 
-            if (baseTrackName.empty()) {
+            if (baseTrackName.empty())
                newTrack->SetName(nameSuffix);
-            }
-            else if (nameSuffix.empty()) {
+            else if (nameSuffix.empty())
                newTrack->SetName(baseTrackName);
-            }
-            else {
+            else
                newTrack->SetName(baseTrackName + wxT("_") + nameSuffix);
-            }
+
             //create a new clip with a proper name before recording is started
-            newTrack->CreateClip(t0, makeNewClipName(newTrack.get()));
+            insertEmptyInterval(*newTrack, t0, false);
 
-            TrackList::Get( *p ).RegisterPendingNewTrack( newTrack );
+            transportSequences.captureSequences.push_back(
+               std::static_pointer_cast<WaveTrack>(newTrack->shared_from_this())
+            );
 
-            if ((recordingChannels > 2) &&
-                !(ProjectSettings::Get(*p).GetTracksFitVerticallyZoomed())) {
-               TrackView::Get( *newTrack ).SetMinimized(true);
+            for(auto channel : newTrack->Channels())
+            {
+               ChannelView::Get(*channel).SetMinimized(minimizeChannelView);
             }
-
-            transportTracks.captureTracks.push_back(newTrack);
          }
-         TrackList::Get( *p ).MakeMultiChannelTrack(*first, recordingChannels, true);
+         pendingTracks.RegisterPendingNewTracks(std::move(*newTracks));
          // Bug 1548.  First of new tracks needs the focus.
-         TrackFocus::Get(*p).Set(first);
-         if (TrackList::Get(*p).back())
-            TrackList::Get(*p).back()->EnsureVisible();
+         TrackFocus::Get(project).Set(first);
+         if (!trackList.empty()) {
+            BasicUI::CallAfter([pProject = project.weak_from_this()]{
+               if (!pProject.expired()) {
+                  auto &project = *pProject.lock();
+                  auto &trackList = TrackList::Get(project);
+                  Viewport::Get(project).ShowTrack(**trackList.rbegin());
+               }
+            });
+         }
       }
 
       //Automated Input Level Adjustment Initialization
@@ -936,7 +983,8 @@ bool ProjectAudioManager::DoRecord(AudacityProject &project,
          gAudioIO->AILAInitialize();
       #endif
 
-      int token = gAudioIO->StartStream(transportTracks, t0, t1, t1, options);
+      int token =
+         gAudioIO->StartStream(transportSequences, t0, t1, t1, options);
 
       success = (token != 0);
 
@@ -973,8 +1021,6 @@ void ProjectAudioManager::OnPause()
 
    auto gAudioIO = AudioIO::Get();
 
-#ifdef EXPERIMENTAL_SCRUBBING_SUPPORT
-
    auto project = &mProject;
    auto &scrubber = Scrubber::Get( *project );
 
@@ -993,9 +1039,9 @@ void ProjectAudioManager::OnPause()
    if (ScrubState::IsScrubbing())
       scrubber.Pause(paused);
    else
-#endif
    {
-      gAudioIO->SetPaused(paused);
+      constexpr auto publish = true;
+      gAudioIO->SetPaused(paused, publish);
    }
 }
 
@@ -1019,7 +1065,7 @@ bool ProjectAudioManager::Paused() const
 void ProjectAudioManager::CancelRecording()
 {
    const auto project = &mProject;
-   TrackList::Get( *project ).ClearPendingTracks();
+   PendingTracks::Get(*project).ClearPendingTracks();
 }
 
 void ProjectAudioManager::OnAudioIORate(int rate)
@@ -1030,7 +1076,7 @@ void ProjectAudioManager::OnAudioIORate(int rate)
 
    auto display = FormatRate( rate );
 
-   ProjectStatus::Get( project ).Set( display, rateStatusBarField );
+   ProjectStatus::Get( project ).Set( display, RateStatusBarField() );
 }
 
 void ProjectAudioManager::OnAudioIOStartRecording()
@@ -1077,8 +1123,7 @@ void ProjectAudioManager::OnAudioIOStopRecording()
    }
 }
 
-void ProjectAudioManager::OnAudioIONewBlocks(
-   const WritableSampleTrackArray *tracks)
+void ProjectAudioManager::OnAudioIONewBlocks()
 {
    auto &project = mProject;
    auto &projectFileIO = ProjectFileIO::Get( project );
@@ -1089,7 +1134,7 @@ void ProjectAudioManager::OnAudioIONewBlocks(
 void ProjectAudioManager::OnCommitRecording()
 {
    const auto project = &mProject;
-   TrackList::Get( *project ).ApplyPendingTracks();
+   PendingTracks::Get(*project).ApplyPendingTracks();
 }
 
 void ProjectAudioManager::OnSoundActivationThreshold()
@@ -1163,7 +1208,7 @@ static ProjectAudioIO::DefaultOptions::Scope sScope {
 
    //! Decorate with more info
    options.listener = ProjectAudioManager::Get(project).shared_from_this();
-   
+
    bool loopEnabled = ViewInfo::Get(project).playRegion.Active();
    options.loopEnabled = loopEnabled;
 
@@ -1175,7 +1220,7 @@ static ProjectAudioIO::DefaultOptions::Scope sScope {
             -> std::unique_ptr<PlaybackPolicy>
       {
          return std::make_unique<DefaultPlaybackPolicy>( project,
-            trackEndTime, loopEndTime,
+            trackEndTime, loopEndTime, options.pStartTime,
             options.loopEnabled, options.variableSpeed);
       };
 
@@ -1280,14 +1325,14 @@ static RegisteredMenuItemEnabler stopIfPaused{{
    []{ return PausedFlag(); },
    []{ return AudioIONotBusyFlag(); },
    []( const AudacityProject &project ){
-      return MenuManager::Get( project ).mStopIfWasPaused; },
+      return CommandManager::Get( project ).mStopIfWasPaused; },
    []( AudacityProject &project, CommandFlag ){
-      if ( MenuManager::Get( project ).mStopIfWasPaused )
+      if ( CommandManager::Get( project ).mStopIfWasPaused )
          ProjectAudioManager::Get( project ).StopIfPaused();
    }
 }};
 
-// GetSelectedProperties collects information about 
+// GetSelectedProperties collects information about
 // currently selected audio tracks
 PropertiesOfSelected
 GetPropertiesOfSelected(const AudacityProject &proj)
@@ -1297,11 +1342,10 @@ GetPropertiesOfSelected(const AudacityProject &proj)
    PropertiesOfSelected result;
    result.allSameRate = true;
 
-   const auto selectedTracks{ 
-      TrackList::Get(proj).Selected< const WaveTrack >() };
+   const auto selectedTracks{
+      TrackList::Get(proj).Selected<const WaveTrack>() };
 
-   for (const auto & track : selectedTracks) 
-   {
+   for (const auto & track : selectedTracks) {
       if (rateOfSelection != RATE_NOT_SELECTED &&
          track->GetRate() != rateOfSelection)
          result.allSameRate = false;
@@ -1309,7 +1353,7 @@ GetPropertiesOfSelected(const AudacityProject &proj)
          rateOfSelection = track->GetRate();
    }
 
-   result.numberOfSelected = selectedTracks.size();
+   result.anySelected = !selectedTracks.empty();
    result.rateOfSelected = rateOfSelection;
 
    return  result;

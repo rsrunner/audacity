@@ -21,6 +21,8 @@ Paul Licameli
 
 enum eWindowFunctions : int;
 
+class WaveChannel;
+
 /*!
  @brief A class that transforms a portion of a wave track (preserving duration)
  by applying Fourier transform, then modifying coefficients, then inverse
@@ -75,7 +77,8 @@ public:
    bool ProcessSamples(const WindowProcessor &processor,
       const float *buffer, size_t len);
 
-   //! Call once after a sequence of calls to ProcessSamples; flushes the queue and Invokes DoFinish
+   //! Call once after a sequence of calls to ProcessSamples; flushes the queue
+   //! and Invokes DoFinish
    /*! @return success */
    bool Finish(const WindowProcessor &processor);
 
@@ -182,12 +185,30 @@ class WaveTrack;
 //! Subclass of SpectrumTransformer that rewrites a track
 class TrackSpectrumTransformer /* not final */ : public SpectrumTransformer {
 public:
-   using SpectrumTransformer::SpectrumTransformer;
+   /*!
+    @copydoc SpectrumTransformer::SpectrumTransformer(bool,
+       eWindowFunctions, eWindowFunctions, size_t, unsigned, bool, bool)
+    @pre `!needsOutput || pOutputTrack != nullptr`
+    */
+   TrackSpectrumTransformer(WaveChannel *pOutputTrack,
+      bool needsOutput, eWindowFunctions inWindowType,
+      eWindowFunctions outWindowType, size_t windowSize,
+      unsigned stepsPerWindow, bool leadingPadding, bool trailingPadding
+   )  : SpectrumTransformer{ needsOutput, inWindowType, outWindowType,
+         windowSize, stepsPerWindow, leadingPadding, trailingPadding
+      }
+      , mOutputTrack{ pOutputTrack }
+   {
+      assert(!needsOutput || pOutputTrack != nullptr);
+   }
    ~TrackSpectrumTransformer() override;
 
    //! Invokes Start(), ProcessSamples(), and Finish()
-   bool Process( const WindowProcessor &processor, WaveTrack *track,
+   bool Process(const WindowProcessor &processor, const WaveChannel &channel,
       size_t queueLength, sampleCount start, sampleCount len);
+
+   //! Final flush and trimming of tail samples
+   static bool PostProcess(WaveTrack &outputTrack, sampleCount len);
 
 protected:
    bool DoStart() override;
@@ -195,9 +216,8 @@ protected:
    bool DoFinish() override;
 
 private:
-   WaveTrack *mpTrack = nullptr;
-   std::shared_ptr<WaveTrack> mOutputTrack;
-   sampleCount mStart = 0, mLen = 0;
+   WaveChannel *const mOutputTrack;
+   const WaveChannel *mpChannel = nullptr;
 };
 
 #endif

@@ -18,12 +18,6 @@
 \brief (not quite a Toolbar) at foot of screen for setting and viewing the
 selection range.
 
-*//****************************************************************//**
-
-\class SelectionBarListener
-\brief A parent class of SelectionBar, used to forward events to do
-with changes in the SelectionBar.
-
 *//*******************************************************************/
 
 
@@ -32,7 +26,6 @@ with changes in the SelectionBar.
 
 #include <algorithm>
 
-#include "SelectionBarListener.h"
 #include "ToolManager.h"
 
 // For compilers that support precompilation, includes "wx/wx.h".
@@ -56,9 +49,10 @@ with changes in the SelectionBar.
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
+#include "ProjectNumericFormats.h"
 #include "ProjectRate.h"
+#include "ProjectSelectionManager.h"
 #include "ProjectTimeSignature.h"
-#include "../ProjectSettings.h"
 #include "ViewInfo.h"
 #include "AllThemeResources.h"
 #include "ImageManipulation.h"
@@ -101,6 +95,13 @@ std::pair<const TranslatableString&, const TranslatableString&> ModeNames[] = {
    { LengthTimeText, CenterTimeText },
 };
 
+std::unordered_map<TranslatableString, wxWindowID> WindowIDs {
+   { StartTimeText, 2705 },
+   { LengthTimeText, 2706 },
+   { CenterTimeText, 2707 },
+   { EndTimeText, 2708 }
+};
+
 const NumericConverterType TimeConverterType[][2] {
    { NumericConverterType_TIME(), NumericConverterType_TIME() },
    { NumericConverterType_TIME(), NumericConverterType_DURATION() },
@@ -127,8 +128,10 @@ Identifier SelectionBar::ID()
 
 SelectionBar::SelectionBar( AudacityProject &project )
 : ToolBar(project, XO("Selection"), ID()),
-  mListener(NULL), mRate(0.0),
-  mStart(0.0), mEnd(0.0), mLength(0.0), mCenter(0.0)
+  mRate(0.0),
+  mStart(0.0), mEnd(0.0), mLength(0.0), mCenter(0.0),
+  mFormatsSubscription{ ProjectNumericFormats::Get(project).Subscribe(
+     *this, &SelectionBar::OnFormatsChanged) }
 {
    // Make sure we have a valid rate as the NumericTextCtrl()s
    // created in Populate()
@@ -149,13 +152,7 @@ SelectionBar::~SelectionBar()
 
 bool SelectionBar::ShownByDefault() const
 {
-   return
-#ifdef EXPERIMENTAL_DA
-      false
-#else
-      true
-#endif
-   ;
+   return true;
 }
 
 ToolBar::DockID SelectionBar::DefaultDockID() const
@@ -183,16 +180,16 @@ void SelectionBar::Create(wxWindow * parent)
 AButton* SelectionBar::MakeSetupButton()
 {
    wxImage up = theTheme.Image(bmpRecoloredUpSmall);
-   up.Rescale(20, 20, wxIMAGE_QUALITY_HIGH);
+   up.Rescale(23, 23, wxIMAGE_QUALITY_HIGH);
    wxImage down = theTheme.Image(bmpRecoloredDownSmall);
-   down.Rescale(20, 20, wxIMAGE_QUALITY_HIGH);
+   down.Rescale(23, 23, wxIMAGE_QUALITY_HIGH);
    wxImage hiliteUp = theTheme.Image(bmpRecoloredUpHiliteSmall);
-   hiliteUp.Rescale(20, 20, wxIMAGE_QUALITY_HIGH);
+   hiliteUp.Rescale(23, 23, wxIMAGE_QUALITY_HIGH);
    wxImage hiliteDown = theTheme.Image(bmpRecoloredHiliteSmall);
-   hiliteDown.Rescale(20, 20, wxIMAGE_QUALITY_HIGH);
+   hiliteDown.Rescale(23, 23, wxIMAGE_QUALITY_HIGH);
 
    auto btn = safenew AButton(
-      this, wxID_ANY, wxDefaultPosition, wxSize { 20, 20 }, up, hiliteUp, down,
+      this, wxID_ANY, wxDefaultPosition, wxSize { 23, 23 }, up, hiliteUp, down,
       hiliteDown, up, false);
 
    btn->SetButtonType(AButton::FrameButton);
@@ -213,10 +210,10 @@ void SelectionBar::AddTitle(
 }
 
 
-void SelectionBar::AddTime(
-   int id, wxSizer * pSizer ){
-   auto formatName = mListener ? mListener->AS_GetSelectionFormat()
-      : NumericFormatSymbol{};
+void SelectionBar::AddTime(int id, wxSizer * pSizer)
+{
+   auto &formats = ProjectNumericFormats::Get(mProject);
+   auto formatName = formats.GetSelectionFormat();
    auto pCtrl = safenew NumericTextCtrl(FormatterContext::ProjectContext(mProject),
       this, id, NumericConverterType_TIME(), formatName, 0.0);
 
@@ -227,6 +224,16 @@ void SelectionBar::AddTime(
    pSizer->Add(pCtrl, 0, wxALIGN_TOP | wxRIGHT, 5);
 
    mTimeControls[id] = pCtrl;
+
+   mFormatChangedToFitValueSubscription[id] = pCtrl->Subscribe(
+      [this, id](const auto& msg)
+      {
+         auto altCtrl = mTimeControls[id == 0 ? 1 : 0];
+         if (altCtrl != nullptr)
+            altCtrl->UpdateFormatToFit(msg.value);
+
+         FitToTimeControls();
+      });
 }
 
 void SelectionBar::AddSelectionSetupButton(wxSizer* pSizer)
@@ -299,6 +306,12 @@ void SelectionBar::Populate()
    mainSizer->Layout();
    RegenerateTooltips();
    Layout();
+
+   CallAfter([this]{
+      auto &formats = ProjectNumericFormats::Get(mProject);
+      SetSelectionFormat(formats.GetSelectionFormat());
+   });
+
 }
 
 void SelectionBar::UpdatePrefs()
@@ -332,12 +345,6 @@ void SelectionBar::UpdatePrefs()
    // Give base class a chance
    ToolBar::UpdatePrefs();
 }
-
-void SelectionBar::SetListener(SelectionBarListener *l)
-{
-   mListener = l;
-   SetSelectionFormat(mListener->AS_GetSelectionFormat());
-};
 
 void SelectionBar::RegenerateTooltips()
 {
@@ -439,7 +446,8 @@ void SelectionBar::ModifySelection(int driver, bool done)
    }
 
    // Places the start-end markers on the track panel.
-   mListener->AS_ModifySelection(start, end, done);
+   auto &manager = ProjectSelectionManager::Get(mProject);
+   manager.ModifySelection(start, end, done);
 }
 
 // Called when one of the format drop downs is changed.
@@ -457,15 +465,14 @@ void SelectionBar::OnUpdate(wxCommandEvent &evt)
          std::distance(mTimeControls.begin(), focusedCtrlIt) :
          -1;
 
-   auto format = NumericConverterFormats::Lookup(
-      FormatterContext::ProjectContext(mProject), NumericConverterType_TIME(),
-      evt.GetString());
+   auto format = evt.GetString();
 
    // Save format name before recreating the controls so they resize properly
    if (mTimeControls.front())
    {
-      if (mListener)
-         mListener->AS_SetSelectionFormat(format);
+      auto &formats = ProjectNumericFormats::Get(mProject);
+      formats.SetSelectionFormat(format);
+      // Then my Subscription is called
    }
 
    // ReCreateButtons() will get rid of our sizers and controls
@@ -499,12 +506,7 @@ void SelectionBar::SelectionModeUpdated()
    // We just changed the mode.  Remember it.
    UpdateSelectionMode(mSelectionMode);
 
-   wxSize sz = GetMinSize();
-   sz.SetWidth( 10 );
-   SetMinSize( sz );
-   Fit();
-   Layout();
-   Updated();
+   FitToTimeControls();
 }
 
 // We used to have 8 modes which showed different combinations of the
@@ -514,14 +516,18 @@ void SelectionBar::SetSelectionMode(SelectionMode mode)
 {
    mSelectionMode = mode;
 
-   // Update names for the screen readers
+   // Update names and WindowIds for the screen readers
    auto& modeName = ModeNames[static_cast<size_t>(mode)];
 
-   if (mTimeControls[0])
+   if (mTimeControls[0]) {
       mTimeControls[0]->SetName(modeName.first);
+      mTimeControls[0]->SetId(WindowIDs.at(modeName.first));
+   }
 
-   if (mTimeControls[1])
+   if (mTimeControls[1]) {
       mTimeControls[1]->SetName(modeName.second);
+      mTimeControls[1]->SetId(WindowIDs.at(modeName.second));
+   }
 
    UpdateTimeControlsFormat(mTimeControls[0]->GetFormatName());
 
@@ -564,7 +570,7 @@ void SelectionBar::SetTimes(double start, double end)
    }
 }
 
-void SelectionBar::SetSelectionFormat(const NumericFormatSymbol & format)
+void SelectionBar::SetSelectionFormat(const NumericFormatID & format)
 {
    if (mTimeControls.front() == nullptr)
       return;
@@ -574,8 +580,19 @@ void SelectionBar::SetSelectionFormat(const NumericFormatSymbol & format)
    // Test first whether changed, to avoid infinite recursion from OnUpdate
    if ( changed ) {
       wxCommandEvent e;
-      e.SetString(format.Internal());
+      e.SetString(format.GET());
       OnUpdate(e);
+   }
+}
+
+void SelectionBar::OnFormatsChanged(ProjectNumericFormatsEvent evt)
+{
+   auto &formats = ProjectNumericFormats::Get(mProject);
+   switch (evt.type) {
+   case ProjectNumericFormatsEvent::ChangedSelectionFormat:
+      return SetSelectionFormat(formats.GetSelectionFormat());
+   default:
+      break;
    }
 }
 
@@ -602,7 +619,7 @@ void SelectionBar::OnCaptureKey(wxCommandEvent &event)
    event.Skip();
 }
 
-void SelectionBar::UpdateTimeControlsFormat(const NumericFormatSymbol& format)
+void SelectionBar::UpdateTimeControlsFormat(const NumericFormatID& format)
 {
    for (size_t controlIndex = 0; controlIndex < mTimeControls.size();
         ++controlIndex)
@@ -617,9 +634,19 @@ void SelectionBar::UpdateTimeControlsFormat(const NumericFormatSymbol& format)
 
       ctrl->SetTypeAndFormatName(
          type, type != NumericConverterType_DURATION() ?
-                  format :
-                  NumericConverterFormats::GetBestDurationFormat(format));
+            format :
+            NumericConverterFormats::GetBestDurationFormat(format));
    }
+}
+
+void SelectionBar::FitToTimeControls()
+{
+   wxSize sz = GetMinSize();
+   sz.SetWidth(10);
+   SetMinSize(sz);
+   Fit();
+   Layout();
+   Updated();
 }
 
 static RegisteredToolbarFactory factory{

@@ -13,9 +13,8 @@
 \brief Shows progress in executing commands in MacroCommands.
 
 *//*******************************************************************/
-
-
 #include "BatchProcessDialog.h"
+#include "DoEffect.h"
 
 #include <wx/setup.h> // for wxUSE_* macros
 
@@ -26,6 +25,7 @@
 #include <wx/defs.h>
 #include <wx/checkbox.h>
 #include <wx/choice.h>
+#include <wx/frame.h>
 #include <wx/log.h>
 #include <wx/statbox.h>
 #include <wx/stattext.h>
@@ -36,28 +36,31 @@
 #include <wx/settings.h>
 
 #include "Clipboard.h"
+#include "PluginManager.h"
 #include "ShuttleGui.h"
-#include "Menus.h"
+#include "MenuCreator.h"
 #include "Prefs.h"
 #include "Project.h"
 #include "ProjectFileManager.h"
 #include "ProjectHistory.h"
 #include "ProjectManager.h"
-#include "ProjectWindow.h"
+#include "ProjectWindows.h"
 #include "SelectUtilities.h"
 #include "Track.h"
-#include "commands/CommandManager.h"
+
+#include "CommandManager.h"
 #include "Effect.h"
 #include "effects/EffectUI.h"
 #include "../images/Arrow.xpm"
 #include "../images/Empty9x16.xpm"
 #include "UndoManager.h"
+#include "Viewport.h"
 
 #include "AllThemeResources.h"
 
 #include "FileDialog/FileDialog.h"
 #include "FileNames.h"
-#include "import/Import.h"
+#include "Import.h"
 #include "AudacityMessageBox.h"
 #include "AudacityTextEntryDialog.h"
 #include "HelpSystem.h"
@@ -145,7 +148,7 @@ void ApplyMacroDialog::PopulateOrExchange(ShuttleGui &S)
    S.StartStatic(XO("Select Macro"), 1);
    {
       mMacros = S.Id(MacrosListID).Prop(1)
-         .Style(wxSUNKEN_BORDER | wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
+         .Style( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
              wxLC_SINGLE_SEL)
               // i18n-hint: This is the heading for a column in the edit macros dialog
               .AddListControlReportMode( { XO("Macro") } );
@@ -184,7 +187,7 @@ void ApplyMacroDialog::PopulateOrExchange(ShuttleGui &S)
 }
 
 /// This clears and updates the contents of mMacros, the list of macros.
-/// It has cut-and-paste code from PopulateList, and both should call 
+/// It has cut-and-paste code from PopulateList, and both should call
 /// a shared function.
 void ApplyMacroDialog::PopulateMacros()
 {
@@ -297,7 +300,7 @@ void ApplyMacroDialog::ApplyMacroToProject( int iMacro, bool bHasGui )
    wxYield();
 #endif
 
-   //Since we intend to keep this dialog open, there is no reason to hide it 
+   //Since we intend to keep this dialog open, there is no reason to hide it
    //and then show it again.
    //if( bHasGui )
    //   Hide();
@@ -368,7 +371,7 @@ void ApplyMacroDialog::OnApplyToFiles(wxCommandEvent & WXUNUSED(event))
       return;
    }
    Raise();
-   
+
    wxArrayString files;
    dlog.GetPaths(files);
 
@@ -391,7 +394,7 @@ void ApplyMacroDialog::OnApplyToFiles(wxCommandEvent & WXUNUSED(event))
          imageList->Add(wxIcon(arrow_xpm));
 
          fileList = S.Id(CommandsListID)
-            .Style(wxSUNKEN_BORDER | wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
+            .Style( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
                 wxLC_SINGLE_SEL)
             .AddListControlReportMode( { XO("File") } );
          // AssignImageList takes ownership
@@ -439,7 +442,7 @@ void ApplyMacroDialog::OnApplyToFiles(wxCommandEvent & WXUNUSED(event))
    // and hiding this one temporarily has some advantages.
    Hide();
 
-   mMacroCommands.ReadMacro(name); 
+   mMacroCommands.ReadMacro(name);
    {
       auto &globalClipboard = Clipboard::Get();
 
@@ -461,9 +464,9 @@ void ApplyMacroDialog::OnApplyToFiles(wxCommandEvent & WXUNUSED(event))
          fileList->SetItemImage(i, 1, 1);
          fileList->EnsureVisible(i);
 
-         auto success = GuardedCall< bool >([&] {
+         auto success = GuardedCall<bool>([&] {
             ProjectFileManager::Get(*project).Import(files[i]);
-            ProjectWindow::Get(*project).ZoomAfterImport(nullptr);
+            Viewport::Get(*project).ZoomFitHorizontallyAndShowTrack(nullptr);
             SelectUtilities::DoSelectAll(*project);
             if (!mMacroCommands.ApplyMacro(mCatalog))
                return false;
@@ -629,7 +632,7 @@ void MacrosWindow::PopulateOrExchange(ShuttleGui & S)
          S.StartHorizontalLay(wxEXPAND,1);
          {
             mMacros = S.Id(MacrosListID).Prop(1)
-               .Style(wxSUNKEN_BORDER | wxLC_REPORT | wxLC_HRULES
+               .Style( wxLC_REPORT | wxLC_HRULES
                       | wxLC_SINGLE_SEL | wxLC_EDIT_LABELS)
               // i18n-hint: This is the heading for a column in the edit macros dialog
               .AddListControlReportMode( { XO("Macro") } );
@@ -653,7 +656,7 @@ void MacrosWindow::PopulateOrExchange(ShuttleGui & S)
          S.StartHorizontalLay(wxEXPAND,1);
          {
             mList = S.Id(CommandsListID)
-               .Style(wxSUNKEN_BORDER | wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
+               .Style( wxLC_REPORT | wxLC_HRULES | wxLC_VRULES |
                    wxLC_SINGLE_SEL)
                .AddListControlReportMode({
                   /* i18n-hint: This is the number of the command in the list */
@@ -665,7 +668,7 @@ void MacrosWindow::PopulateOrExchange(ShuttleGui & S)
             S.StartVerticalLay(wxALIGN_TOP, 0);
             {
                S.Id(InsertButtonID).AddButton(XXO("&Insert"), wxALIGN_LEFT);
-               S.Id(EditButtonID).AddButton(XXO("&Edit..."), wxALIGN_LEFT);
+               mEdit = S.Id(EditButtonID).AddButton(XXO("&Edit..."), wxALIGN_LEFT);
                S.Id(DeleteButtonID).AddButton(XXO("De&lete"), wxALIGN_LEFT);
                S.Id(UpButtonID).AddButton(XXO("Move &Up"), wxALIGN_LEFT);
                S.Id(DownButtonID).AddButton(XXO("Move &Down"), wxALIGN_LEFT);
@@ -681,7 +684,7 @@ void MacrosWindow::PopulateOrExchange(ShuttleGui & S)
    S.EndHorizontalLay();
 
    S.StartHorizontalLay(wxEXPAND, 0);
-   {  
+   {
       /* i18n-hint: The Shrink button makes the dialog smaller, with less in it */
       mResize = S.Id(ShrinkID).AddButton(XXO("Shrin&k"));
       // Using variable text just to get the positioning options.
@@ -713,7 +716,7 @@ void MacrosWindow::PopulateOrExchange(ShuttleGui & S)
 
    S.EndHorizontalLay();
 
-   
+
    return;
 }
 
@@ -772,12 +775,12 @@ void MacrosWindow::UpdateMenus()
 {
    // OK even on mac, as dialog is modal.
    auto p = &mProject;
-   MenuManager::Get(*p).RebuildMenuBar(*p);
+   MenuCreator::Get(*p).RebuildMenuBar();
 }
 
 void MacrosWindow::UpdateDisplay( bool bExpanded )
 {
-   // If we failed to save changes, we abandon the attempt to 
+   // If we failed to save changes, we abandon the attempt to
    // change the expand/shrink state of the GUI.
    if( !SaveChanges() )
       return;
@@ -785,8 +788,8 @@ void MacrosWindow::UpdateDisplay( bool bExpanded )
    mbExpanded = bExpanded;
 
    mChanged = false;
-   // if we try to access the about to be destroyed mSave button 
-   // inappropriately, we need to crash rather than (sometimes) silently 
+   // if we try to access the about to be destroyed mSave button
+   // inappropriately, we need to crash rather than (sometimes) silently
    // succeed.
    mSave = nullptr;
 
@@ -799,7 +802,7 @@ void MacrosWindow::UpdateDisplay( bool bExpanded )
    // Get and set position for optical stability.
    // Expanded and shrunk dialogs 'stay where they were'.
    // That's OK , and what we want, even if we exapnd off-screen.
-   // We won't shrink to being off-screen, since the shrink button 
+   // We won't shrink to being off-screen, since the shrink button
    // was clicked, so must have been on screen.
    wxPoint p = GetPosition( );
    if( mbExpanded )
@@ -819,7 +822,7 @@ void MacrosWindow::OnExpand(wxCommandEvent &WXUNUSED(event))
 {  UpdateDisplay( true );}
 
 void MacrosWindow::OnShrink(wxCommandEvent &WXUNUSED(event))
-{  
+{
    if( ChangeOK() )
       UpdateDisplay( false );
 }
@@ -872,7 +875,7 @@ void MacrosWindow::ShowActiveMacro()
    mMacroCommands.ReadMacro(mActiveMacro);
    if( !mbExpanded )
       return;
-   
+
    if (mMacroCommands.IsFixed(mActiveMacro)) {
       mRemove->Disable();
       mRename->Disable();
@@ -888,8 +891,19 @@ void MacrosWindow::ShowActiveMacro()
 }
 
 /// An item in the macros list has been selected.
-void MacrosWindow::OnListSelected(wxListEvent & WXUNUSED(event))
+void MacrosWindow::OnListSelected(wxListEvent &event)
 {
+   const auto &command = mCatalog.ByTranslation(mList->GetItemText(event.GetIndex(), ActionColumn));
+
+   if (command != mCatalog.end())
+   {
+      PluginID ID =
+         PluginManager::Get().GetByCommandIdentifier(command->name.Internal());
+
+      mEdit->Enable(!ID.empty());
+   }
+
+
    FitColumns();
 }
 
@@ -979,7 +993,7 @@ void MacrosWindow::OnMacrosEndEdit(wxListEvent &event)
       mActiveMacro = newname;
    mMacroBeingRenamed="";
    PopulateMacros();
-   UpdateMenus();   
+   UpdateMenus();
    event.Veto();
 }
 
@@ -1068,7 +1082,7 @@ void MacrosWindow::OnRemove(wxCommandEvent & WXUNUSED(event))
       item--;
    }
 
-   // Bug 2284.  The macro we have just removed might have been 
+   // Bug 2284.  The macro we have just removed might have been
    // changed.  Since we've just deleted the macro, we should
    // forget about that change.
    mChanged = false;
@@ -1219,7 +1233,7 @@ void MacrosWindow::OnEditCommandParams(wxCommandEvent & WXUNUSED(event))
    wxString params  = mMacroCommands.GetParams(item);
    wxString oldParams = params;
 
-   params = MacroCommands::PromptForParamsFor(command, params, *this).Trim();
+   params = MacroCommands::PromptForParamsFor(command, params, mProject).Trim();
    Raise();
 
    if (oldParams == params)
@@ -1352,7 +1366,7 @@ void MacrosWindow::OnCancel(wxCommandEvent &WXUNUSED(event))
    }
    // If we've rejected a change, we need to restore the display
    // of the active macro.
-   // That's because next time we open this dialog we want to see the 
+   // That's because next time we open this dialog we want to see the
    // unedited macro.
    if( bWasChanged )
       ShowActiveMacro();
@@ -1383,43 +1397,41 @@ void MacrosWindow::UpdatePrefs()
 // The rest of this file installs hooks
 
 #include "CommonCommandFlags.h"
-#include "commands/CommandContext.h"
-#include "effects/EffectManager.h"
-#include "ProjectWindows.h"
+#include "CommandContext.h"
 namespace {
 
 AttachedWindows::RegisteredFactory sMacrosWindowKey{
    []( AudacityProject &parent ) -> wxWeakRef< wxWindow > {
-      auto &window = ProjectWindow::Get( parent );
+      auto &window = GetProjectFrame(parent);
       return safenew MacrosWindow(
          &window, parent, true
       );
    }
 };
 
+using MacroID = wxString;
+
 void OnApplyMacroDirectlyByName(
    const CommandContext& context, const MacroID& Name);
 
 void OnRepeatLastTool(const CommandContext& context)
 {
-   auto& menuManager = MenuManager::Get(context.project);
-   switch (menuManager.mLastToolRegistration) {
-     case MenuCreator::repeattypeplugin:
+   auto& commandManager = CommandManager::Get(context.project);
+   switch (commandManager.mLastToolRegistration) {
+     case CommandManager::repeattypeplugin:
      {
-        auto lastEffect = menuManager.mLastTool;
+        auto lastEffect = commandManager.mLastTool;
         if (!lastEffect.empty())
-        {
            EffectUI::DoEffect(
-              lastEffect, context, menuManager.mRepeatToolFlags);
-        }
+              lastEffect, context.project, commandManager.mRepeatToolFlags);
      }
        break;
-     case MenuCreator::repeattypeunique:
+     case CommandManager::repeattypeunique:
         CommandManager::Get(context.project).DoRepeatProcess(context,
-           menuManager.mLastToolRegisteredId);
+           commandManager.mLastToolRegisteredId);
         break;
-     case MenuCreator::repeattypeapplymacro:
-        OnApplyMacroDirectlyByName(context, menuManager.mLastTool);
+     case CommandManager::repeattypeapplymacro:
+        OnApplyMacroDirectlyByName(context, commandManager.mLastTool);
         break;
    }
 }
@@ -1460,7 +1472,7 @@ void OnApplyMacroDirectlyByName(const CommandContext& context, const MacroID& Na
 
 {
    auto &project = context.project;
-   auto &window = ProjectWindow::Get( project );
+   auto &window = GetProjectFrame(project);
    //wxLogDebug( "Macro was: %s", context.parameter);
    ApplyMacroDialog dlg( &window, project );
    //const auto &Name = context.parameter;
@@ -1477,11 +1489,10 @@ void OnApplyMacroDirectlyByName(const CommandContext& context, const MacroID& Na
 #endif
    /* i18n-hint: %s will be the name of the macro which will be
     * repeated if this menu item is chosen */
-   MenuManager::ModifyUndoMenuItems( project );
+   CommandManager::Get(project).ModifyUndoMenuItems();
 
    TranslatableString desc;
-   EffectManager& em = EffectManager::Get();
-   auto shortDesc = em.GetCommandName(Name);
+   auto shortDesc = PluginManager::Get().GetName(Name);
    auto& undoManager = UndoManager::Get(project);
    auto& commandManager = CommandManager::Get(project);
    int cur = undoManager.GetCurrentState();
@@ -1489,60 +1500,58 @@ void OnApplyMacroDirectlyByName(const CommandContext& context, const MacroID& Na
        undoManager.GetShortDescription(cur, &desc);
        commandManager.Modify(wxT("RepeatLastTool"), XXO("&Repeat %s")
           .Format(desc));
-       auto& menuManager = MenuManager::Get(project);
-       menuManager.mLastTool = Name;
-       menuManager.mLastToolRegistration = MenuCreator::repeattypeapplymacro;
+       auto& commandManager = CommandManager::Get(project);
+       commandManager.mLastTool = Name;
+       commandManager.mLastToolRegistration =
+          CommandManager::repeattypeapplymacro;
    }
 
 }
 
-MenuTable::BaseItemPtrs PopulateMacrosMenu( CommandFlag flags  )
+void PopulateMacrosMenu(MenuRegistry::MenuItems &items, CommandFlag flags)
 {
-   MenuTable::BaseItemPtrs result;
+   using namespace MenuRegistry;
    auto names = MacroCommands::GetNames(); // these names come from filenames
-   int i;
-
-   // This finder scope may be redundant, but harmless
-   for (i = 0; i < (int)names.size(); i++) {
-      auto MacroID = ApplyMacroDialog::MacroIdOfName( names[i] );
-      result.push_back( MenuTable::Command( MacroID,
-         Verbatim( names[i] ), // file name verbatim
+   for (const auto &name : names) {
+      auto MacroID = ApplyMacroDialog::MacroIdOfName(name);
+      items.push_back(MenuRegistry::Command(MacroID,
+         Verbatim(name), // file name verbatim
          OnApplyMacroDirectly,
          flags,
-         CommandManager::Options{}.AllowInMacros()
-      ) );
+         Options{}.AllowInMacros()
+      ));
    }
-
-   return result;
 }
 
 const ReservedCommandFlag&
    HasLastToolFlag() { static ReservedCommandFlag flag{
       [](const AudacityProject &project) {
-      auto& menuManager = MenuManager::Get(project);
-         if (menuManager.mLastToolRegistration == MenuCreator::repeattypeunique) return true;
-         return !menuManager.mLastTool.empty();
+      auto& commandManager = CommandManager::Get(project);
+         if (commandManager.mLastToolRegistration ==
+             CommandManager::repeattypeunique)
+            return true;
+         return !commandManager.mLastTool.empty();
       }
    }; return flag;
 }
 }
 
-using namespace MenuTable;
+using namespace MenuRegistry;
 
-BaseItemSharedPtr PluginMenuItems()
+auto PluginMenuItems()
 {
-   using Options = CommandManager::Options;
-   static BaseItemSharedPtr items{
+   static auto items = std::shared_ptr{
    Items( "Macros",
       Section( "RepeatLast",
          // Delayed evaluation:
          [](AudacityProject &project)
          {
-            const auto &lastTool = MenuManager::Get(project).mLastTool;
+            const auto &lastTool = CommandManager::Get(project).mLastTool;
             TranslatableString buildMenuLabel;
             if (!lastTool.empty())
-               buildMenuLabel = XO("Repeat %s")
-                  .Format( EffectManager::Get().GetCommandName(lastTool) );
+               buildMenuLabel =
+                  XO("Repeat %s")
+                     .Format(PluginManager::Get().GetName(lastTool));
             else
                buildMenuLabel = XO("Repeat Last Tool");
 
@@ -1567,45 +1576,43 @@ BaseItemSharedPtr PluginMenuItems()
 
          Section( "",
             // Delayed evaluation:
-            [](AudacityProject&)
-            { return Items( wxEmptyString, PopulateMacrosMenu( AudioIONotBusyFlag() ) ); }
+            [](AudacityProject&) {
+               auto result = Items("");
+               PopulateMacrosMenu(*result, AudioIONotBusyFlag());
+               return result;
+            }
          )
       )
    ) };
    return items;
 }
 
-AttachedItem sAttachment1{
-   wxT("Tools/Manage"),
-   Indirect(PluginMenuItems())
-};
+AttachedItem sAttachment1{ Indirect(PluginMenuItems()), wxT("Tools/Manage") };
 
-BaseItemSharedPtr ExtraScriptablesIMenu()
+auto ExtraScriptablesIMenu()
 {
    // These are the more useful to VI user Scriptables.
-   static BaseItemSharedPtr menu{
+   static auto menu = std::shared_ptr{
    // i18n-hint: Scriptables are commands normally used from Python, Perl etc.
    Menu( wxT("Scriptables1"), XXO("Script&ables I") )
    };
    return menu;
 }
 
-AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part2"),
-   Indirect(ExtraScriptablesIMenu())
+AttachedItem sAttachment2{ Indirect(ExtraScriptablesIMenu()),
+   wxT("Optional/Extra/Part2")
 };
 
-BaseItemSharedPtr ExtraScriptablesIIMenu()
+auto ExtraScriptablesIIMenu()
 {
    // Less useful to VI users.
-   static BaseItemSharedPtr menu{
+   static auto menu = std::shared_ptr{
    // i18n-hint: Scriptables are commands normally used from Python, Perl etc.
    Menu( wxT("Scriptables2"), XXO("Scripta&bles II") )
    };
    return menu;
 }
 
-AttachedItem sAttachment3{
-   wxT("Optional/Extra/Part2"),
-   Indirect(ExtraScriptablesIIMenu())
+AttachedItem sAttachment3{ Indirect(ExtraScriptablesIIMenu()),
+   wxT("Optional/Extra/Part2")
 };

@@ -15,12 +15,17 @@
 class wxString;
 
 class LabelTrack;
+class WaveChannel;
 
-#include "StatefulEffect.h"
 #include "ShuttleAutomation.h"
+#include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 #include <wx/weakref.h>
 
-class EffectFindClipping final : public StatefulEffect
+
+class EffectFindClipping final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
 {
 public:
    static inline EffectFindClipping *
@@ -54,8 +59,8 @@ public:
 private:
    // EffectFindCliping implementation
 
-   bool ProcessOne(LabelTrack *lt, int count, const WaveTrack * wt,
-                   sampleCount start, sampleCount len);
+   bool ProcessOne(LabelTrack &lt, int count, const WaveChannel &wt,
+      sampleCount start, sampleCount len);
 
    wxWeakRef<wxWindow> mUIParent{};
 

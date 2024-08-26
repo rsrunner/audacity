@@ -28,6 +28,11 @@ TimeTrackVZoomHandle::TimeTrackVZoomHandle(
 
 TimeTrackVZoomHandle::~TimeTrackVZoomHandle() = default;
 
+std::shared_ptr<const Track> TimeTrackVZoomHandle::FindTrack() const
+{
+   return mpTrack.lock();
+}
+
 void TimeTrackVZoomHandle::Enter( bool, AudacityProject* )
 {
 #ifdef EXPERIMENTAL_TRACK_PANEL_HIGHLIGHTING
@@ -87,7 +92,7 @@ UIHandle::Result TimeTrackVZoomHandle::Release
        !(event.ShiftDown() || event.CmdDown()))
    {
       CommonTrackControls::InitMenuData data {
-         *pProject, pTrack.get(), pParent, RefreshNone
+         *pProject, *pTrack, pParent, RefreshNone
       };
 
       auto pMenu = PopupMenuTable::BuildMenu(

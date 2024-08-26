@@ -14,8 +14,12 @@
 #define __AUDACITY_EFFECT_NOISE_REDUCTION__
 
 #include "StatefulEffect.h"
+#include "StatefulEffectUIServices.h"
 
-class EffectNoiseReduction final : public StatefulEffect {
+class EffectNoiseReduction final :
+    public StatefulEffect,
+    public StatefulEffectUIServices
+{
 public:
    static const ComponentInterfaceSymbol Symbol;
 
@@ -37,7 +41,7 @@ public:
 
 //   using Effect::TrackProgress;
 
-   int ShowHostInterface(EffectPlugin &plugin, wxWindow &parent,
+   int ShowHostInterface(EffectBase &plugin, wxWindow &parent,
       const EffectDialogFactory &factory,
       std::shared_ptr<EffectInstance> &pInstance, EffectSettingsAccess &access,
       bool forceModal = false) override;
@@ -47,9 +51,9 @@ public:
    class Settings;
    class Statistics;
    class Dialog;
+   class Worker;
 
 private:
-   class Worker;
    friend class Dialog;
 
    std::unique_ptr<Settings> mSettings;

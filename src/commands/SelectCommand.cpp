@@ -35,10 +35,11 @@ explicitly code all three.
 #include <float.h>
 
 #include "CommandDispatch.h"
-#include "CommandManager.h"
+#include "MenuRegistry.h"
 #include "../CommonCommandFlags.h"
+#include "EffectOutputTracks.h"
 #include "LoadCommands.h"
-#include "../ProjectSelectionManager.h"
+#include "ProjectSelectionManager.h"
 #include "../TrackPanel.h"
 #include "SettingsVisitor.h"
 #include "ShuttleGui.h"
@@ -46,6 +47,7 @@ explicitly code all three.
 #include "Effect.h"
 #include "ViewInfo.h"
 #include "CommandContext.h"
+#include "WaveTrack.h"
 
 
 const ComponentInterfaceSymbol SelectTimeCommand::Symbol
@@ -115,7 +117,7 @@ bool SelectTimeCommand::Apply(const CommandContext & context){
       mRelativeTo = 0;
 
    AudacityProject * p = &context.project;
-   double end = TrackList::Get( *p ).GetEndTime();
+   double end = TrackList::Get(*p).GetEndTime();
    double t0;
    double t1;
 
@@ -193,7 +195,8 @@ bool SelectFrequenciesCommand::Apply(const CommandContext & context){
    if( !bHasBottom )
       mBottom = 0.0;
 
-   ProjectSelectionManager::Get( context.project ).SSBL_ModifySpectralSelection(
+   ProjectSelectionManager::Get(context.project).ModifySpectralSelection(
+      WaveTrack::ProjectNyquistFrequency(context.project),
       mBottom, mTop, false);// false for not done.
    return true;
 }
@@ -253,7 +256,7 @@ bool SelectTracksCommand::Apply(const CommandContext &context)
 
    // Count selection as a do-nothing effect.
    // Used to invalidate cached selection and tracks.
-   Effect::IncEffectCounter();
+   EffectOutputTracks::IncEffectCounter();
    int index = 0;
    auto &tracks = TrackList::Get( context.project );
 
@@ -264,28 +267,17 @@ bool SelectTracksCommand::Apply(const CommandContext &context)
       mFirstTrack = 0.0;
 
    // Multiple channels count as fractions of a track.
-   double last = mFirstTrack+mNumTracks;
+   double last = mFirstTrack + mNumTracks;
    double first = mFirstTrack;
 
-   for (auto t : tracks.Leaders()) {
-      auto channels = TrackList::Channels(t);
-      double term = 0.0;
-      // Add 0.01 so we are free of rounding errors in comparisons.
-      constexpr double fudge = 0.01;
-      for (auto channel : channels) {
-         double track = index + fudge + term;
-         bool sel = first <= track && track <= last;
-         if( mMode == 0 ){ // Set
-            channel->SetSelected(sel);
-         }
-         else if( mMode == 1 && sel ){ // Add
-            channel->SetSelected(sel);
-         }
-         else if( mMode == 2 && sel ){ // Remove
-            channel->SetSelected(!sel);
-         }
-         term += 1.0 / channels.size();
-      }
+   for (auto t : tracks) {
+      const bool sel = first <= index && index < last;
+      if (mMode == 0) // Set
+         t->SetSelected(sel);
+      else if(mMode == 1 && sel) // Add
+         t->SetSelected(sel);
+      else if(mMode == 2 && sel) // Remove
+         t->SetSelected(!sel);
       ++index;
    }
    return true;
@@ -316,12 +308,11 @@ bool SelectCommand::VisitSettings( ConstSettingsVisitor & S )
 }
 
 namespace {
-using namespace MenuTable;
+using namespace MenuRegistry;
 
 // Register menu items
 
 AttachedItem sAttachment1{
-   wxT("Optional/Extra/Part2/Scriptables1"),
    Items( wxT(""),
       // Note that the PLUGIN_SYMBOL must have a space between words,
       // whereas the short-form used here must not.
@@ -333,16 +324,17 @@ AttachedItem sAttachment1{
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
       Command( wxT("SelectTracks"), XXO("Select Tracks..."),
          CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
-   )
+   ),
+   wxT("Optional/Extra/Part2/Scriptables1")
 };
 
 AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part2/Scriptables2"),
    // Note that the PLUGIN_SYMBOL must have a space between words,
    // whereas the short-form used here must not.
    // (So if you did write "Compare Audio" for the PLUGIN_SYMBOL name, then
    // you would have to use "CompareAudio" here.)
    Command( wxT("Select"), XXO("Select..."),
-      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() )
+      CommandDispatch::OnAudacityCommand, AudioIONotBusyFlag() ),
+   wxT("Optional/Extra/Part2/Scriptables2")
 };
 }

@@ -45,7 +45,7 @@ AddedAnalysisTrack::~AddedAnalysisTrack()
 {
    if (mpEffect) {
       // not committed -- DELETE the label track
-      mpEffect->mTracks->Remove(mpTrack);
+      mpEffect->mTracks->Remove(*mpTrack);
    }
 }
 
@@ -56,25 +56,26 @@ std::shared_ptr<AddedAnalysisTrack> AddAnalysisTrack(
       { safenew AddedAnalysisTrack{ &effect, name } };
 }
 
-ModifiedAnalysisTrack::ModifiedAnalysisTrack
-   (Effect *pEffect, const LabelTrack *pOrigTrack, const wxString &name)
-   : mpEffect(pEffect)
+ModifiedAnalysisTrack::ModifiedAnalysisTrack(
+   Effect *pEffect, const LabelTrack &origTrack, const wxString &name
+)  : mpEffect(pEffect)
 {
    // copy LabelTrack here, so it can be undone on cancel
-   auto newTrack = pOrigTrack->Copy(pOrigTrack->GetStartTime(), pOrigTrack->GetEndTime());
+   const auto startTime = origTrack.GetStartTime();
+   auto newTrack = origTrack.Copy(startTime, origTrack.GetEndTime());
 
    mpTrack = static_cast<LabelTrack*>(newTrack.get());
 
    // Why doesn't LabelTrack::Copy complete the job? :
-   mpTrack->SetOffset(pOrigTrack->GetStartTime());
+   mpTrack->MoveTo(startTime);
    if (!name.empty())
       mpTrack->SetName(name);
 
    // mpOrigTrack came from mTracks which we own but expose as const to subclasses
    // So it's okay that we cast it back to const
    mpOrigTrack =
-      pEffect->mTracks->Replace(const_cast<LabelTrack*>(pOrigTrack),
-         newTrack );
+      pEffect->mTracks->ReplaceOne(const_cast<LabelTrack&>(origTrack),
+         std::move(*TrackList::Temporary(nullptr, newTrack)));
 }
 
 ModifiedAnalysisTrack::ModifiedAnalysisTrack(ModifiedAnalysisTrack &&that)
@@ -92,16 +93,17 @@ void ModifiedAnalysisTrack::Commit()
 
 ModifiedAnalysisTrack::~ModifiedAnalysisTrack()
 {
-   if (mpEffect) {
+   if (mpEffect && mpTrack) {
       // not committed -- DELETE the label track
       // mpOrigTrack came from mTracks which we own but expose as const to subclasses
       // So it's okay that we cast it back to const
-      mpEffect->mTracks->Replace(mpTrack, mpOrigTrack);
+      mpEffect->mTracks->ReplaceOne(*mpTrack,
+         std::move(*TrackList::Temporary(nullptr, mpOrigTrack)));
    }
 }
 
 ModifiedAnalysisTrack ModifyAnalysisTrack(
-   Effect &effect, const LabelTrack *pOrigTrack, const wxString &name)
+   Effect &effect, const LabelTrack &origTrack, const wxString &name)
 {
-   return{ &effect, pOrigTrack, name };
+   return{ &effect, origTrack, name };
 }

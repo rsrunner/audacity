@@ -16,6 +16,7 @@
 
 #include "BatchCommands.h"
 #include "Prefs.h"
+#include "wxPanelWrapper.h"
 
 class wxWindow;
 class wxTextCtrl;
@@ -138,6 +139,7 @@ private:
    wxButton *mRestore;
    wxButton *mImport;
    wxButton *mExport;
+   wxButton *mEdit;
    wxButton *mSave;
 
    int mSelectedCommand;

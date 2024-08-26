@@ -20,14 +20,14 @@ class AudacityProject;
 enum : int {
    // Constants related to x coordinates in the track panel
    kBorderThickness = 1,
-   kShadowThickness = 1,
+   kShadowThickness = 0,
 
    kLeftInset = 4,
    kRightInset = kLeftInset,
    kLeftMargin = kLeftInset + kBorderThickness,
    kRightMargin = kRightInset + kShadowThickness + kBorderThickness,
 
-   kTrackInfoWidth = 100 - kLeftMargin,
+   kTrackInfoWidth = 155 - kLeftMargin,
 };
 
 // The subset of ViewInfo information (other than selection)
@@ -40,19 +40,22 @@ class SCREEN_GEOMETRY_API ZoomInfo /* not final */
 public:
    using int64 = std::int64_t;
 
+   /*!
+    @param start leftmost visible timeline position, in seconds
+    */
    ZoomInfo(double start, double pixelsPerSecond);
    ~ZoomInfo();
 
    // Be sure we don't slice
-   ZoomInfo(const ZoomInfo&) PROHIBITED;
-   ZoomInfo& operator= (const ZoomInfo&) PROHIBITED;
+   ZoomInfo(const ZoomInfo&) = delete;
+   ZoomInfo& operator= (const ZoomInfo&) = delete;
 
-   int vpos;                    // vertical scroll pos
-
-   double h;                    // h pos in secs
+   //! Leftmost visible timeline position in seconds
+   double hpos;
 
 protected:
-   double zoom;                 // pixels per second
+   //! pixels per second
+   double zoom;
 
 public:
    // do NOT use this once to convert a pixel width to a duration!
@@ -121,6 +124,11 @@ public:
    // Use TimeToPosition and PositionToTime and OffsetTimeByPixels instead
    double GetZoom() const;
 
+   /*! Get the absolute pixel offset, that corresponds to an offset on time line.
+    *  This function effectively return std::floor(0.5 + h * zoom + offset)
+    */
+   double GetAbsoluteOffset(double offset) const;
+
    static double GetMaxZoom( );
    static double GetMinZoom( );
 
@@ -142,8 +150,7 @@ public:
    // It is guaranteed that there is at least one entry and the position of the
    // first entry equals origin.
    // @param origin specifies the pixel position corresponding to time ViewInfo::h.
-   void FindIntervals
-      (double rate, Intervals &results, int64 width, int64 origin = 0) const;
+   Intervals FindIntervals(int64 width, int64 origin = 0) const;
 
    enum FisheyeState {
       HIDDEN,

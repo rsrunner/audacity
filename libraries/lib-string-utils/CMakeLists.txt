@@ -1,3 +1,7 @@
+#[[
+String encoding and formatting utilities
+]]
+
 set(TARGET lib-string-utils)
 set(TARGET_ROOT ${CMAKE_CURRENT_SOURCE_DIR} )
 
@@ -5,6 +9,9 @@ def_vars()
 
 set(SOURCES
     HexHelpers.h
+
+    StringUtils.h
+    StringUtils.cpp
 
     UrlEncode.h
     UrlEncode.cpp
@@ -23,6 +30,9 @@ set(SOURCES
 
     FromChars.h
     FromChars.cpp
+
+    UriParser.h
+    UriParser.cpp
 )
 
 set( LIBRARIES

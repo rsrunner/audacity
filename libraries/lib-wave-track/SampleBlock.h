@@ -11,6 +11,7 @@ SampleBlock.h
 
 #include "GlobalVariable.h"
 #include "SampleFormat.h"
+#include "AudioSegmentSampleView.h"
 
 #include <functional>
 #include <memory>
@@ -25,6 +26,7 @@ class XMLWriter;
 
 class SampleBlock;
 using SampleBlockPtr = std::shared_ptr<SampleBlock>;
+using SampleBlockConstPtr = std::shared_ptr<const SampleBlock>;
 class SampleBlockFactory;
 using SampleBlockFactoryPtr = std::shared_ptr<SampleBlockFactory>;
 
@@ -44,15 +46,12 @@ public:
 class WAVE_TRACK_API SampleBlock
 {
 public:
-   //! Type of function that is informed when a block is about to be deleted
-   struct DeletionCallback : GlobalHook<DeletionCallback,
-      void(const SampleBlock&)
-   >{};
+   using DeletionCallback = std::function<void(const SampleBlock &)>;
 
    virtual ~SampleBlock();
 
-   virtual void CloseLock() = 0;
-   
+   virtual void CloseLock() noexcept = 0;
+
    virtual SampleBlockID GetBlockID() const = 0;
 
    // If !mayThrow and there is an error, ignores it and returns zero.
@@ -61,6 +60,10 @@ public:
                      sampleFormat destformat,
                      size_t sampleoffset,
                      size_t numsamples, bool mayThrow = true);
+
+   virtual BlockSampleView GetFloatSampleView(bool mayThrow) = 0;
+
+   virtual sampleFormat GetSampleFormat() const = 0;
 
    virtual size_t GetSampleCount() const = 0;
 
@@ -98,11 +101,11 @@ protected:
 };
 
 // Makes a useful function object
-inline std::function< void(const SampleBlock&) >
+inline std::function< void(SampleBlockConstPtr) >
 BlockSpaceUsageAccumulator (unsigned long long &total)
 {
-   return [&total]( const SampleBlock &block ){
-      total += block.GetSpaceUsage();
+   return [&total](SampleBlockConstPtr pBlock){
+      total += pBlock->GetSpaceUsage();
    };
 };
 
@@ -138,6 +141,9 @@ public:
       sampleFormat srcformat,
       const AttributesList &attrs);
 
+   // Potentially returns a null pointer
+   SampleBlockPtr CreateFromId(sampleFormat srcformat, SampleBlockID id);
+
    using SampleBlockIDs = std::unordered_set<SampleBlockID>;
    /*! @return ids of all sample blocks created by this factory and still extant */
    virtual SampleBlockIDs GetActiveBlockIDs() = 0;
@@ -160,6 +166,9 @@ protected:
    virtual SampleBlockPtr DoCreateFromXML(
       sampleFormat srcformat,
       const AttributesList &attrs) = 0;
+
+   virtual SampleBlockPtr
+   DoCreateFromId(sampleFormat srcformat, SampleBlockID id) = 0;
 };
 
 #endif

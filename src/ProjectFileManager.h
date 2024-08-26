@@ -25,9 +25,9 @@ class Track;
 class TrackList;
 class WaveTrack;
 class XMLTagHandler;
+class ClipMirAudioReader;
 
-using WaveTrackArray = std::vector < std::shared_ptr < WaveTrack > >;
-using TrackHolders = std::vector< WaveTrackArray >;
+using TrackHolders = std::vector<std::shared_ptr<Track>>;
 
 class AUDACITY_DLL_API ProjectFileManager final
    : public ClientData::Base
@@ -40,8 +40,8 @@ public:
    static void DiscardAutosave(const FilePath &filename);
 
    explicit ProjectFileManager( AudacityProject &project );
-   ProjectFileManager( const ProjectFileManager & ) PROHIBITED;
-   ProjectFileManager &operator=( const ProjectFileManager & ) PROHIBITED;
+   ProjectFileManager( const ProjectFileManager & ) = delete;
+   ProjectFileManager &operator=( const ProjectFileManager & ) = delete;
    ~ProjectFileManager();
 
    bool OpenProject();
@@ -95,8 +95,8 @@ public:
    static AudacityProject *OpenFile( const ProjectChooserFn &chooser,
       const FilePath &fileName, bool addtohistory = true);
 
-   bool Import(const FilePath &fileName,
-               bool addToHistory = true);
+   bool Import(const FilePath& fileName, bool addToHistory = true);
+   bool Import(wxArrayString fileNames, bool addToHistory = true);
 
    void Compact();
 
@@ -106,7 +106,24 @@ public:
    bool GetMenuClose() const { return mMenuClose; }
    void SetMenuClose(bool value) { mMenuClose = value; }
 
+   /*!
+    * \brief Attempts to find and fix problems in tracks.
+    * \param tracks A list of tracks to be fixed
+    * \param onError Called each time unrepairable error has been found.
+    * \param onUnlink Called when tracks unlinked due to link inconsistency.
+    */
+   static void FixTracks(TrackList& tracks,
+                         const std::function<void(const TranslatableString&/*errorMessage*/)>& onError,
+                         const std::function<void(const TranslatableString&/*unlinkReason*/)>& onUnlink);
+
 private:
+   bool ImportAndRunTempoDetection(
+      const std::vector<FilePath>& fileNames, bool addToHistory);
+
+   bool DoImport(
+      const FilePath& fileName, bool addToHistory,
+      std::shared_ptr<ClipMirAudioReader>& resultingReader);
+
    /*!
     @param fileName a path assumed to exist and contain an .aup3 project
     @param addtohistory whether to add the file to the MRU list
@@ -130,7 +147,7 @@ private:
    AudacityProject &mProject;
 
    std::shared_ptr<TrackList> mLastSavedTracks;
-   
+
    // Are we currently closing as the result of a menu command?
    bool mMenuClose{ false };
 };

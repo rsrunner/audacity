@@ -16,8 +16,11 @@
 
 *******************************************************************/
 #include "AutoDuck.h"
+#include "BasicUI.h"
 #include "EffectEditor.h"
+#include "EffectOutputTracks.h"
 #include "LoadEffects.h"
+#include "UserException.h"
 
 #include <math.h>
 
@@ -31,7 +34,9 @@
 #include "Theme.h"
 #include "../widgets/valnum.h"
 
+#include "WaveClip.h"
 #include "WaveTrack.h"
+#include "TimeStretching.h"
 #include "AudacityMessageBox.h"
 
 const EffectParameterMethods& EffectAutoDuck::Parameters() const
@@ -82,12 +87,7 @@ END_EVENT_TABLE()
 EffectAutoDuck::EffectAutoDuck()
 {
    Parameters().Reset(*this);
-
    SetLinearEffectFlag(true);
-
-   mControlTrack = NULL;
-
-   mPanel = NULL;
 }
 
 EffectAutoDuck::~EffectAutoDuck()
@@ -122,33 +122,34 @@ EffectType EffectAutoDuck::GetType() const
 
 bool EffectAutoDuck::Init()
 {
-   mControlTrack = NULL;
+   mControlTrack = nullptr;
 
+   // Find the control track, which is the non-selected wave track immediately
+   // after the last selected wave track.  Fail if there is no such track or if
+   // any selected track is not a wave track.
    bool lastWasSelectedWaveTrack = false;
-   const WaveTrack *controlTrackCandidate = NULL;
-
-   for (auto t : inputTracks()->Any())
-   {
-      if (lastWasSelectedWaveTrack && !t->GetSelected()) {
+   const WaveTrack *controlTrackCandidate = nullptr;
+   for (auto t : *inputTracks()) {
+      if (lastWasSelectedWaveTrack && !t->GetSelected())
          // This could be the control track, so remember it
-         controlTrackCandidate = track_cast<const WaveTrack *>(t);
-      }
+         controlTrackCandidate = dynamic_cast<const WaveTrack *>(t);
 
       lastWasSelectedWaveTrack = false;
-
       if (t->GetSelected()) {
          bool ok = t->TypeSwitch<bool>(
-            [&](const WaveTrack *) {
+            [&](const WaveTrack &) {
                lastWasSelectedWaveTrack = true;
+               controlTrackCandidate = nullptr;
                return true;
             },
-            [&](const Track *) {
+            [&](const Track &) {
                EffectUIServices::DoMessageBox(*this,
-                  /* i18n-hint: Auto duck is the name of an effect that 'ducks' (reduces the volume)
-                   * of the audio automatically when there is sound on another track.  Not as
-                   * in 'Donald-Duck'!*/
-                  XO("You selected a track which does not contain audio. AutoDuck can only process audio tracks."),
-                  wxICON_ERROR );
+                  /* i18n-hint: Auto duck is the name of an effect that 'ducks'
+                   (reduces the volume) of the audio automatically when there is
+                   sound on another track.  Not as in 'Donald-Duck'!*/
+                  XO("You selected a track which does not contain audio. "
+                     "AutoDuck can only process audio tracks."),
+                  wxICON_ERROR);
                return false;
             }
          );
@@ -157,19 +158,18 @@ bool EffectAutoDuck::Init()
       }
    }
 
-   if (!controlTrackCandidate)
-   {
+   if (!controlTrackCandidate) {
       EffectUIServices::DoMessageBox(*this,
-         /* i18n-hint: Auto duck is the name of an effect that 'ducks' (reduces the volume)
-          * of the audio automatically when there is sound on another track.  Not as
-          * in 'Donald-Duck'!*/
-         XO("Auto Duck needs a control track which must be placed below the selected track(s)."),
-         wxICON_ERROR );
+         /* i18n-hint: Auto duck is the name of an effect that 'ducks' (reduces
+          the volume) of the audio automatically when there is sound on another
+          track.  Not as in 'Donald-Duck'!*/
+         XO("Auto Duck needs a control track which must be placed below the "
+            "selected track(s)."),
+         wxICON_ERROR);
       return false;
    }
 
    mControlTrack = controlTrackCandidate;
-
    return true;
 }
 
@@ -188,6 +188,28 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
    if (end <= start)
       return false;
 
+   WaveTrack::Holder pFirstTrack;
+   auto pControlTrack = mControlTrack;
+   // If there is any stretch in the control track, substitute a temporary
+   // rendering before trying to use GetFloats
+   {
+      const auto t0 = pControlTrack->LongSamplesToTime(start);
+      const auto t1 = pControlTrack->LongSamplesToTime(end);
+      if (TimeStretching::HasPitchOrSpeed(*pControlTrack, t0, t1)) {
+         pFirstTrack = pControlTrack->Duplicate()->SharedPointer<WaveTrack>();
+         if (pFirstTrack) {
+            UserException::WithCancellableProgress(
+               [&](const ProgressReporter& reportProgress) {
+                  pFirstTrack->ApplyPitchAndSpeed(
+                     { { t0, t1 } }, reportProgress);
+               },
+               TimeStretching::defaultStretchRenderingTitle,
+               XO("Rendering Control-Track Time-Stretched Audio"));
+            pControlTrack = pFirstTrack.get();
+         }
+      }
+   }
+
    // the minimum number of samples we have to wait until the maximum
    // pause has been exceeded
    double maxPause = mMaximumPause;
@@ -197,7 +219,7 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
       maxPause = mOuterFadeDownLen + mOuterFadeUpLen;
 
    auto minSamplesPause =
-      mControlTrack->TimeToLongSamples(maxPause);
+      pControlTrack->TimeToLongSamples(maxPause);
 
    double threshold = DB_TO_LINEAR(mThresholdDb);
 
@@ -221,11 +243,12 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
 
       auto pos = start;
 
+      const auto pControlChannel = *pControlTrack->Channels().begin();
       while (pos < end)
       {
          const auto len = limitSampleBufferSize( kBufSize, end - pos );
-         
-         mControlTrack->GetFloats(buf.get(), pos, len);
+
+         pControlChannel->GetFloats(buf.get(), pos, len);
 
          for (auto i = pos; i < pos + len; i++)
          {
@@ -249,7 +272,7 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
                   // the threshold has been exceeded for the first time, so
                   // let the duck region begin here
                   inDuckRegion = true;
-                  duckRegionStart = mControlTrack->LongSamplesToTime(i);
+                  duckRegionStart = pControlTrack->LongSamplesToTime(i);
                }
             }
 
@@ -264,7 +287,7 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
                {
                   // do the actual duck fade and reset all values
                   double duckRegionEnd =
-                     mControlTrack->LongSamplesToTime(i - curSamplesPause);
+                     pControlTrack->LongSamplesToTime(i - curSamplesPause);
 
                   regions.push_back(AutoDuckRegion(
                      duckRegionStart - mOuterFadeDownLen,
@@ -292,39 +315,37 @@ bool EffectAutoDuck::Process(EffectInstance &, EffectSettings &)
       if (inDuckRegion)
       {
          double duckRegionEnd =
-            mControlTrack->LongSamplesToTime(end - curSamplesPause);
+            pControlTrack->LongSamplesToTime(end - curSamplesPause);
          regions.push_back(AutoDuckRegion(
             duckRegionStart - mOuterFadeDownLen,
             duckRegionEnd + mOuterFadeUpLen));
       }
    }
 
-   if (!cancel)
-   {
-      CopyInputTracks(); // Set up mOutputTracks.
+   if (!cancel) {
+      EffectOutputTracks outputs { *mTracks, GetType(), { { mT0, mT1 } } };
 
       int trackNum = 0;
 
-      for( auto iterTrack : mOutputTracks->Selected< WaveTrack >() )
-      {
-         for (size_t i = 0; i < regions.size(); i++)
-         {
-            const AutoDuckRegion& region = regions[i];
-            if (ApplyDuckFade(trackNum, iterTrack, region.t0, region.t1))
-            {
-               cancel = true;
-               break;
+      for (auto iterTrack : outputs.Get().Selected<WaveTrack>()) {
+         for (const auto pChannel : iterTrack->Channels())
+            for (size_t i = 0; i < regions.size(); ++i) {
+               const AutoDuckRegion& region = regions[i];
+               if (ApplyDuckFade(trackNum++, *pChannel, region.t0, region.t1)) {
+                  cancel = true;
+                  goto done;
+               }
             }
-         }
 
+         done:
          if (cancel)
             break;
-
-         trackNum++;
       }
+
+      if (!cancel)
+         outputs.Commit();
    }
 
-   ReplaceProcessedTracks(!cancel);
    return !cancel;
 }
 
@@ -435,23 +456,23 @@ bool EffectAutoDuck::TransferDataFromWindow(EffectSettings &)
 // EffectAutoDuck implementation
 
 // this currently does an exponential fade
-bool EffectAutoDuck::ApplyDuckFade(int trackNum, WaveTrack* t,
-                                   double t0, double t1)
+bool EffectAutoDuck::ApplyDuckFade(int trackNum, WaveChannel &track,
+   double t0, double t1)
 {
    bool cancel = false;
 
-   auto start = t->TimeToLongSamples(t0);
-   auto end = t->TimeToLongSamples(t1);
+   auto start = track.TimeToLongSamples(t0);
+   auto end = track.TimeToLongSamples(t1);
 
    Floats buf{ kBufSize };
    auto pos = start;
 
-   auto fadeDownSamples = t->TimeToLongSamples(
+   auto fadeDownSamples = track.TimeToLongSamples(
       mOuterFadeDownLen + mInnerFadeDownLen);
    if (fadeDownSamples < 1)
       fadeDownSamples = 1;
 
-   auto fadeUpSamples = t->TimeToLongSamples(
+   auto fadeUpSamples = track.TimeToLongSamples(
       mOuterFadeUpLen + mInnerFadeUpLen);
    if (fadeUpSamples < 1)
       fadeUpSamples = 1;
@@ -459,14 +480,10 @@ bool EffectAutoDuck::ApplyDuckFade(int trackNum, WaveTrack* t,
    float fadeDownStep = mDuckAmountDb / fadeDownSamples.as_double();
    float fadeUpStep = mDuckAmountDb / fadeUpSamples.as_double();
 
-   while (pos < end)
-   {
-      const auto len = limitSampleBufferSize( kBufSize, end - pos );
-
-      t->GetFloats(buf.get(), pos, len);
-
-      for (auto i = pos; i < pos + len; i++)
-      {
+   while (pos < end) {
+      const auto len = limitSampleBufferSize(kBufSize, end - pos);
+      track.GetFloats(buf.get(), pos, len);
+      for (auto i = pos; i < pos + len; ++i) {
          float gainDown = fadeDownStep * (i - start).as_float();
          float gainUp = fadeUpStep * (end - i).as_float();
 
@@ -482,15 +499,18 @@ bool EffectAutoDuck::ApplyDuckFade(int trackNum, WaveTrack* t,
          buf[ ( i - pos ).as_size_t() ] *= DB_TO_LINEAR(gain);
       }
 
-      t->Set((samplePtr)buf.get(), floatSample, pos, len);
+      if (!track.SetFloats(buf.get(), pos, len)) {
+         cancel = true;
+         break;
+      }
 
       pos += len;
 
-      float curTime = t->LongSamplesToTime(pos);
+      float curTime = track.LongSamplesToTime(pos);
       float fractionFinished = (curTime - mT0) / (mT1 - mT0);
-      if (TotalProgress( (trackNum + 1 + fractionFinished) /
-                         (GetNumWaveTracks() + 1) ))
-      {
+      if (TotalProgress((trackNum + 1 + fractionFinished) /
+         (GetNumWaveTracks() + 1))
+      ) {
          cancel = true;
          break;
       }

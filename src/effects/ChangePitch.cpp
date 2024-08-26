@@ -249,7 +249,6 @@ std::unique_ptr<EffectEditor> EffectChangePitch::PopulateOrExchange(
    {
       S.StartVerticalLay();
       {
-         S.AddTitle(XO("Change Pitch without Changing Tempo"));
          S.AddTitle(
             XO("Estimated Start Pitch: %s%d (%.3f Hz)")
                .Format( pitch[m_nFromPitch], m_nFromOctave, m_FromFrequency) );
@@ -421,7 +420,7 @@ void EffectChangePitch::DeduceFrequencies()
     auto FirstTrack = [&]()->const WaveTrack *{
       if( IsBatchProcessing() || !inputTracks() )
          return nullptr;
-      return *( inputTracks()->Selected< const WaveTrack >() ).first;
+      return *(inputTracks()->Selected<const WaveTrack>()).first;
    };
 
    m_dStartFrequency = 261.265;// Middle C.
@@ -455,10 +454,12 @@ void EffectChangePitch::DeduceFrequencies()
       Floats freq{ windowSize / 2 };
       Floats freqa{ windowSize / 2, true };
 
-      track->GetFloats(buffer.get(), start, analyzeSize);
+      // Always used only the left channel for this deduction of initial pitch
+      (*track->Channels().begin())->GetFloats(buffer.get(), start, analyzeSize);
       for(unsigned i = 0; i < numWindows; i++) {
-         ComputeSpectrum(buffer.get() + i * windowSize, windowSize,
-                         windowSize, rate, freq.get(), true);
+         ComputeSpectrum(
+            buffer.get() + i * windowSize, windowSize, windowSize, freq.get(),
+            true);
          for(size_t j = 0; j < windowSize / 2; j++)
             freqa[j] += freq[j];
       }

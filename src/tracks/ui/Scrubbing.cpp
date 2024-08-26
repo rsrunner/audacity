@@ -14,6 +14,7 @@ Paul Licameli split from TrackPanel.cpp
 #include <functional>
 
 #include "AudioIO.h"
+#include "CommandManager.h"
 #include "../../CommonCommandFlags.h"
 #include "Project.h"
 #include "ProjectAudioIO.h"
@@ -27,7 +28,6 @@ Paul Licameli split from TrackPanel.cpp
 #include "WaveTrack.h"
 #include "../../prefs/PlaybackPrefs.h"
 #include "../../prefs/TracksPrefs.h"
-#include "../../toolbars/ToolManager.h"
 
 #undef USE_TRANSCRIPTION_TOOLBAR
 
@@ -36,6 +36,7 @@ Paul Licameli split from TrackPanel.cpp
 
 #include <wx/app.h>
 #include <wx/menu.h>
+#include <wx/timer.h>
 
 // Yet another experimental scrub would drag the track under a
 // stationary play head
@@ -47,9 +48,7 @@ enum {
    // from ctrl+click for playback.
    SCRUBBING_PIXEL_TOLERANCE = 10,
 
-#ifdef EXPERIMENTAL_SCRUBBING_SCROLL_WHEEL
    ScrubSpeedStepsPerOctave = 4,
-#endif
 
    kOneSecondCountdown =
       1000 / std::chrono::milliseconds{ScrubPollInterval}.count(),
@@ -68,7 +67,7 @@ namespace {
       // and the extremes to the maximum scrub speed.
 
       auto partScreen = screen * TracksPrefs::GetPinnedHeadPositionPreference();
-      const double origin = viewInfo.h + partScreen;
+      const double origin = viewInfo.hpos + partScreen;
       if (timeAtMouse >= origin)
          partScreen = screen - partScreen;
 
@@ -118,7 +117,7 @@ namespace {
 
       // Width of visible track area, in time terms:
       auto partScreen = screen * TracksPrefs::GetPinnedHeadPositionPreference();
-      const double origin = viewInfo.h + partScreen;
+      const double origin = viewInfo.hpos + partScreen;
       if (timeAtMouse >= origin)
          partScreen = screen - partScreen;
 
@@ -200,9 +199,7 @@ Scrubber::Scrubber(AudacityProject *project)
    , mScrubStartPosition(-1)
    , mSmoothScrollingScrub(false)
    , mPaused(true)
-#ifdef EXPERIMENTAL_SCRUBBING_SCROLL_WHEEL
    , mLogMaxScrubSpeed(0)
-#endif
 
    , mProject(project)
    , mPoller { std::make_unique<ScrubPoller>(*this) }
@@ -234,7 +231,7 @@ Scrubber::~Scrubber()
 
 static const auto HasWaveDataPred =
    [](const AudacityProject &project){
-      auto range = TrackList::Get( project ).Any<const WaveTrack>()
+      auto range = TrackList::Get(project).Any<const WaveTrack>()
          + [](const WaveTrack *pTrack){
             return pTrack->GetEndTime() > pTrack->GetStartTime();
          };
@@ -348,7 +345,6 @@ ScrubbingPlaybackPolicyFactory(const ScrubbingOptions &options)
 }
 
 
-#ifdef EXPERIMENTAL_SCRUBBING_SUPPORT
 // Assume xx is relative to the left edge of TrackPanel!
 bool Scrubber::MaybeStartScrubbing(wxCoord xx)
 {
@@ -375,9 +371,9 @@ bool Scrubber::MaybeStartScrubbing(wxCoord xx)
 
       wxCoord position = xx;
       if (abs(mScrubStartPosition - position) >= SCRUBBING_PIXEL_TOLERANCE) {
-         auto &viewInfo = ViewInfo::Get( *mProject );
-         auto &projectAudioManager = ProjectAudioManager::Get( *mProject );
-         double maxTime = TrackList::Get( *mProject ).GetEndTime();
+         auto &viewInfo = ViewInfo::Get(*mProject);
+         auto &projectAudioManager = ProjectAudioManager::Get(*mProject);
+         double maxTime = TrackList::Get(*mProject).GetEndTime();
          const int leftOffset = viewInfo.GetLeftOffset();
          double time0 = std::min(maxTime,
             viewInfo.PositionToTime(mScrubStartPosition, leftOffset)
@@ -442,7 +438,7 @@ bool Scrubber::MaybeStartScrubbing(wxCoord xx)
 #endif
             mOptions.minTime = 0;
             mOptions.maxTime =
-               std::max(0.0, TrackList::Get( *mProject ).GetEndTime());
+               std::max(0.0, TrackList::Get(*mProject).GetEndTime());
             mOptions.minStutterTime =
 #ifdef DRAG_SCRUB
                mDragging ? PlaybackPolicy::Duration{} :
@@ -450,13 +446,11 @@ bool Scrubber::MaybeStartScrubbing(wxCoord xx)
                std::max(PlaybackPolicy::Duration{}, MinStutter);
 
             const bool backwards = time1 < time0;
-#ifdef EXPERIMENTAL_SCRUBBING_SCROLL_WHEEL
             static const double maxScrubSpeedBase =
                pow(2.0, 1.0 / ScrubSpeedStepsPerOctave);
             mLogMaxScrubSpeed = floor(0.5 +
                log(mMaxSpeed) / log(maxScrubSpeedBase)
             );
-#endif
             mScrubSpeedDisplayCountdown = 0;
 
             // Must start the thread and poller first or else PlayPlayRegion
@@ -830,7 +824,7 @@ double Scrubber::FindScrubSpeed(bool seeking, double time) const
 {
    auto &viewInfo = ViewInfo::Get( *mProject );
    const double screen =
-      viewInfo.GetScreenEndTime() - viewInfo.h;
+      viewInfo.GetScreenEndTime() - viewInfo.hpos;
    return (seeking ? FindSeekSpeed : FindScrubbingSpeed)
       (viewInfo, mMaxSpeed, screen, time);
 }
@@ -970,9 +964,6 @@ void Scrubber::OnToggleScrubRuler(const CommandContext&)
    mShowScrubbing = !mShowScrubbing;
    WriteScrubEnabledPref(mShowScrubbing);
    gPrefs->Flush();
-   // To do: move this, or eliminate it, use an event instead
-   const auto toolbar = ToolManager::Get(*mProject).GetToolBar(wxT("Scrub"));
-   toolbar->EnableDisableButtons();
    CheckMenuItems();
 }
 
@@ -1029,7 +1020,7 @@ registeredStatusWidthFunction{
    []( const AudacityProject &, StatusBarField field )
       -> ProjectStatus::StatusWidthResult
    {
-      if ( field == stateStatusBarField ) {
+      if ( field == StateStatusBarField() ) {
          TranslatableStrings strings;
          // Note that Scrubbing + Paused is not allowed.
          for (const auto &item : menuItems())
@@ -1132,47 +1123,34 @@ static const auto finder =
    [](AudacityProject &project) -> CommandHandlerObject&
      { return Scrubber::Get( project ); };
 
-using namespace MenuTable;
-BaseItemSharedPtr ToolbarMenu()
+using namespace MenuRegistry;
+auto ToolbarMenu()
 {
-   using Options = CommandManager::Options;
-
-   static BaseItemSharedPtr menu { (
-   FinderScope{ finder },
-   Menu( wxT("Scrubbing"),
-      XXO("Scru&bbing"),
-      []{
-         BaseItemPtrs ptrs;
-         for (const auto &item : menuItems()) {
-            ptrs.push_back( Command( item.name, item.label,
-               item.memFn,
-               item.flags,
-               item.StatusTest
-                  ? // a checkmark item
-                     Options{}.CheckTest( [&item](AudacityProject &project){
-                     return ( Scrubber::Get(project).*(item.StatusTest) )(); } )
-                  : // not a checkmark item
-                     Options{}
-            ) );
-         }
-         return ptrs;
-      }()
-   )
-   ) };
-   
+   static auto menu = []{
+      FinderScope scope{ finder };
+      auto menu = std::shared_ptr{ Menu("Scrubbing", XXO("Scru&bbing")) };
+      for (const auto &item : menuItems()) {
+         menu->push_back(Command(item.name, item.label,
+            item.memFn,
+            item.flags,
+            item.StatusTest
+               ? // a checkmark item
+                  Options{}.CheckTest([&item](AudacityProject &project){
+                  return (Scrubber::Get(project).*(item.StatusTest))(); } )
+               : // not a checkmark item
+                  Options{}
+         ));
+      }
+      return menu;
+   }();
    return menu;
 }
 
-AttachedItem sAttachment{
-   wxT("Transport/Basic"),
-   Indirect(ToolbarMenu())
-};
+AttachedItem sAttachment{ Indirect(ToolbarMenu()), wxT("Transport/Basic") };
 
-BaseItemSharedPtr KeyboardScrubbingItems()
+auto KeyboardScrubbingItems()
 {
-   using Options = CommandManager::Options;
-
-   static BaseItemSharedPtr items{
+   static auto items = std::shared_ptr{
    ( FinderScope{ finder },
    Items( wxT("KeyboardScrubbing"),
       Command(wxT("KeyboardScrubBackwards"), XXO("Scrub Bac&kwards"),
@@ -1187,9 +1165,8 @@ BaseItemSharedPtr KeyboardScrubbingItems()
    return items;
 }
 
-AttachedItem sAttachment2{
-   wxT("Optional/Extra/Part1/Transport"),
-   Indirect(KeyboardScrubbingItems())
+AttachedItem sAttachment2{ Indirect(KeyboardScrubbingItems()),
+   wxT("Optional/Extra/Part1/Transport")
 };
 
 }
@@ -1219,5 +1196,3 @@ void Scrubber::CheckMenuItems()
          cm.Check(item.name, (this->*test)());
    }
 }
-
-#endif
