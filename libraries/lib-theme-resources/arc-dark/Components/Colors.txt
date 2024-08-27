@@ -74,7 +74,7 @@
                 ProgressNotYet: #ffffff;
                    SyncLockSel: #8b8571;
                 SelTranslucent: #686894;
-                 BlankSelected: #605d60;
+                 BlankSelected: #404552;
                    SliderLight: #3c3c3c;
                     SliderMain: #767b87;
                     SliderDark: #767b87;
@@ -109,14 +109,14 @@
              DropHintHighlight: #fedfb2;
       EffectListItemBackground: #5d5d5d;
           EffectListItemBorder: #cccccc;
-              BeatSeparatorPen: #373b40;
-               BarSeparatorPen: #3a3f42;
-           BeatFillStrongBrush: #23272b;
-             BeatFillWeakBrush: #272b2f;
-        BeatFillStrongSelBrush: #3c445a;
-          BeatFillWeakSelBrush: #40485d;
-                   LoopEnabled: #4a4d59;
+              BeatSeparatorPen: #23272f;
+               BarSeparatorPen: #171a1f;
+           BeatFillStrongBrush: #2f343f;
+             BeatFillWeakBrush: #373c48;
+        BeatFillStrongSelBrush: #404552;
+          BeatFillWeakSelBrush: #515665;
+                   LoopEnabled: #404552;
                 LoopNotEnabled: #2f343f;
-                       Grabber: #9295a6;
+                       Grabber: #d3dae3;
        TimelineRulerBackground: #2f343f;
 }
