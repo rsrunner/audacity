@@ -368,6 +368,71 @@ void OnExportLabels(const CommandContext &context)
    f.Close();
 }
 
+void OnExportLabelsEx(const CommandContext &context)
+{
+   auto &project = context.project;
+   auto &tracks = TrackList::Get( project );
+   auto &window = GetProjectFrame(project);
+
+   /* i18n-hint: filename containing exported text from label tracks */
+   wxString fName = _("labels.txt");
+   auto trackRange = tracks.Any<const LabelTrack>();
+   auto numLabelTracks = trackRange.size();
+
+   if (numLabelTracks == 0) {
+      AudacityMessageBox( XO("There are no label tracks to export.") );
+      return;
+   }
+   else
+      fName = (*trackRange.rbegin())->GetName();
+
+   fName = SelectFile(FileNames::Operation::Export,
+      XO("Export Labels As (filename will be ignored):"),
+      wxEmptyString,
+      fName,
+      wxT("txt"),
+      { FileNames::TextFiles, LabelTrack::SubripFiles, LabelTrack::WebVTTFiles },
+      wxFD_SAVE | wxFD_OVERWRITE_PROMPT | wxRESIZE_BORDER,
+      &window);
+
+   if (fName.empty())
+      return;
+
+   LabelFormat format = LabelTrack::FormatForFileName(fName);
+
+   // Move existing files out of the way.  Otherwise wxTextFile will
+   // append to (rather than replace) the current file.
+
+   // for all of the label tracks
+   for(auto lt : trackRange){
+      wxFileName sfName;
+      sfName.Assign(fName);
+      sfName.SetFullName(lt->GetName() + fName.Right(4));
+      fName = sfName.GetFullPath();
+      if (wxFileExists(fName)) {
+#ifdef __WXGTK__
+         wxString safetyFileName = fName + wxT("~");
+#else
+         wxString safetyFileName = fName + wxT(".bak");
+#endif
+         if (wxFileExists(safetyFileName))
+            wxRemoveFile(safetyFileName);
+         wxRename(fName, safetyFileName);
+      }
+      wxTextFile f(fName);
+      f.Create();
+      f.Open();
+      if (!f.IsOpened()) {
+         AudacityMessageBox(
+            XO( "Couldn't write to file: %s" ).Format( fName ) );
+         return;
+      }
+      lt->Export(f, format);
+      f.Write();
+      f.Close();
+   }
+}
+
 void OnImport(const CommandContext &context)
 {
    DoImport(context, false);
@@ -540,6 +605,9 @@ auto FileMenu()
          Menu( wxT("ExportOther"), XXO("Expo&rt Other"),
             Command( wxT("ExportLabels"), XXO("Export &Labels..."),
                OnExportLabels,
+               AudioIONotBusyFlag() | LabelTracksExistFlag() ),
+            Command( wxT("ExportLabelsEx"), XXO("Export &Multiple Labels..."),
+               OnExportLabelsEx,
                AudioIONotBusyFlag() | LabelTracksExistFlag() )
          ),
 

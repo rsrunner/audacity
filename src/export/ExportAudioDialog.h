@@ -3,7 +3,7 @@
   Audacity: A Digital Audio Editor
 
   ExportAudioDialog.h
- 
+
   Vitaly Sverchinsky
 
 **********************************************************************/
@@ -67,9 +67,9 @@ public:
 
    bool Show(bool show = true) override;
 private:
-   
+
    void PopulateOrExchange(ShuttleGui& S);
-   
+
    void OnExportRangeChange(wxCommandEvent& event);
    void OnSplitModeChange(wxCommandEvent& event);
    void OnSplitNamePolicyChange(wxCommandEvent& event);
@@ -81,27 +81,27 @@ private:
    void OnFileNamePrefixChange(wxCommandEvent&);
 
    void OnEditMetadata(wxCommandEvent& event);
-   
+
    void OnHelp(wxCommandEvent& event);
-   
+
    void OnExport(wxCommandEvent& event);
 
    void OnFormatChange(wxCommandEvent& event);
 
    void UpdateExportSettings();
-   void UpdateLabelExportSettings(const ExportPlugin& plugin, int formatIndex, bool byName, bool addNumber, const wxString& prefix);
+   void UpdateLabelExportSettings(const ExportPlugin& plugin, int formatIndex, bool byName, bool addNumber, bool useTrackName, const wxString& prefix);
    void UpdateTrackExportSettings(const ExportPlugin& plugin, int formatIndex, bool byName, bool addNumber, const wxString& prefix);
 
    ExportResult DoExportSplitByLabels(const ExportPlugin& plugin,
                                       int formatIndex,
                                       const ExportProcessor::Parameters& parameters,
                                       FilePaths& exporterFiles);
-   
+
    ExportResult DoExportSplitByTracks(const ExportPlugin& plugin,
                                       int formatIndex,
                                       const ExportProcessor::Parameters& parameters,
                                       FilePaths& exporterFiles);
-   
+
    ExportResult DoExport(const ExportPlugin& plugin,
                          int formatIndex,
                          const ExportProcessor::Parameters& parameters,
@@ -110,7 +110,7 @@ private:
                          double t0, double t1, bool selectedOnly,
                          const Tags& tags,
                          FilePaths& exportedFiles);
-   
+
    AudacityProject& mProject;
 
    ExportFilePanel* mExportOptionsPanel{};
@@ -130,12 +130,13 @@ private:
    wxRadioButton* mSplitUseName{};
    wxRadioButton* mSplitUseNumAndName{};
    wxRadioButton* mSplitUseNumAndPrefix{};
+   wxRadioButton* mSplitUseTrackName{};
    wxCheckBox* mOverwriteExisting{};
    wxCheckBox* mSkipSilenceAtBeginning{};
 
    std::vector<ExportSetting> mExportSettings;
    bool mExportSettingsDirty{true};
-   
+
    DECLARE_EVENT_TABLE()
 };
 

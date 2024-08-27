@@ -90,7 +90,8 @@ ChoiceSetting ExportAudioSplitNamePolicy { L"/ExportAudioDialog/SplitNamePolicy"
    {
       { "name", XO("Using Label/Track Name") },//->"label_track"
       { "num_and_name", XO("Numbering before Label/Track Name") },//->"number_before"
-      { "num_and_prefix", XO("Numbering after File name prefix") }//->"number_after"
+      { "num_and_prefix", XO("Numbering after File name prefix") },//->"number_after"
+      { "track_name", XO("(Label) Numbering after track name") },
    },
    0
 };
@@ -122,6 +123,7 @@ enum {
    ExportSplitNamePolicyTrackNameID,
    ExportSplitNamePolicyNumberingBeforeNameID,
    ExportSplitNamePolicyNumberingAfterPrefixID,
+   ExportSplitNamePolicyTrackNameExID,
 
    FileNamePrefixID,
 
@@ -145,6 +147,7 @@ BEGIN_EVENT_TABLE(ExportAudioDialog, wxDialogWrapper)
    EVT_RADIOBUTTON(ExportSplitNamePolicyTrackNameID, ExportAudioDialog::OnSplitNamePolicyChange)
    EVT_RADIOBUTTON(ExportSplitNamePolicyNumberingBeforeNameID, ExportAudioDialog::OnSplitNamePolicyChange)
    EVT_RADIOBUTTON(ExportSplitNamePolicyNumberingAfterPrefixID, ExportAudioDialog::OnSplitNamePolicyChange)
+   EVT_RADIOBUTTON(ExportSplitNamePolicyTrackNameExID, ExportAudioDialog::OnSplitNamePolicyChange)
 
    EVT_CHECKBOX(TrimBlankSpaceBeforeFirstClipID, ExportAudioDialog::OnTrimBlankSpaceBeforeFirstClip)
    EVT_CHECKBOX(IncludeAudioBeforeFirstLabelID, ExportAudioDialog::OnIncludeAudioBeforeFirstLabelChange)
@@ -363,6 +366,7 @@ void ExportAudioDialog::PopulateOrExchange(ShuttleGui& S)
                      mSplitUseName = S.Id(ExportSplitNamePolicyTrackNameID).TieRadioButton();
                      mSplitUseNumAndName = S.Id(ExportSplitNamePolicyNumberingBeforeNameID).TieRadioButton();
                      mSplitUseNumAndPrefix = S.Id(ExportSplitNamePolicyNumberingAfterPrefixID).TieRadioButton();
+                     mSplitUseTrackName = S.Id(ExportSplitNamePolicyTrackNameExID).TieRadioButton();
                   }
                   S.EndRadioButtonGroup();
                   S.StartHorizontalLay(wxALIGN_TOP);
@@ -666,10 +670,11 @@ void ExportAudioDialog::UpdateExportSettings()
    {
       const auto byName = mSplitUseName->GetValue() || mSplitUseNumAndName->GetValue();
       const auto addNumber = mSplitUseNumAndName->GetValue();
+      const auto useTrackName = mSplitUseTrackName->GetValue();
       const auto prefix = mSplitFileNamePrefix->GetValue();
 
       if(mSplitByLabels->GetValue())
-         UpdateLabelExportSettings(*selectedPlugin, selectedFormat, byName, addNumber, prefix);
+         UpdateLabelExportSettings(*selectedPlugin, selectedFormat, byName, addNumber, useTrackName, prefix);
       else if(mSplitByTracks->GetValue())
          UpdateTrackExportSettings(*selectedPlugin, selectedFormat, byName, addNumber, prefix);
 
@@ -677,7 +682,7 @@ void ExportAudioDialog::UpdateExportSettings()
    }
 }
 
-void ExportAudioDialog::UpdateLabelExportSettings(const ExportPlugin& plugin, int formatIndex, bool byName, bool addNumber, const wxString& prefix)
+void ExportAudioDialog::UpdateLabelExportSettings(const ExportPlugin& plugin, int formatIndex, bool byName, bool addNumber, bool useTrackName, const wxString& prefix)
 {
    const auto& tracks = TrackList::Get(mProject);
    const auto& labels = (*tracks.Any<const LabelTrack>().begin());
@@ -709,73 +714,138 @@ void ExportAudioDialog::UpdateLabelExportSettings(const ExportPlugin& plugin, in
    const LabelStruct *info = NULL;
    /* Examine all labels a first time, sort out all data but don't do any
     * exporting yet (so this run is quick but interactive) */
-   while( fileIndex < numLabels ) {
+   if( useTrackName ){
+      // Not being able to access the parent track of the label
+      // makes me want to kill myself
+      // Also, Audacity's code still exports the first label track
 
-      // Get file name and starting time
-      if( fileIndex < 0 ) {
-         // create wxFileName for output file
-         name = setting.filename.GetName();
-         setting.t0 = 0.0;
-      } else {
-         info = labels->GetLabel(fileIndex);
-         name = (info->title);
-         setting.t0 = info->selectedRegion.t0();
-      }
+      // get all the tracks. not the first one
+      // like they do all the damn time
+      const auto allTracks = tracks.Any<const LabelTrack>();
+      // enumerate all label tracks
+      int trackIndex = 0;
+      for(auto it : allTracks){
+         // enumerate its labels
+         // banish the track name into its own variable
+         // because it'll recursively add the number suffix if we assigned
+         // name instead. we don't want that
+         wxString trackName = it->GetName();
+         fileIndex = 0;
+         for ( auto he : it->GetLabels() ) {
+            // this is for tagging
+            title = he.title;
+            // we shouldn't have to figure out what the start and end time
+            // is; it's already there
+            setting.t0 = he.getT0();
+            setting.t1 = he.getT1();
+            // it's copied audacity code from here on out
+            // old format
+            name.Printf(wxT("%s_%04d"), trackName, fileIndex + 1);
+            // the user can do a no-no
+            Internat::SanitiseFilename(name, wxT("_"));
+            // set the filename without the extension
+            setting.filename.SetName(name);
+            { // woo, scoping!
+               // FIXME: TRAP_ERR User could have given an illegal filename prefix.
+               // in that case we should tell them, not fail silently.
+               wxASSERT(setting.filename.IsOk());     // burp if file name is broke
 
-      // Figure out the ending time
-      if( info && !info->selectedRegion.isPoint() ) {
-         setting.t1 = info->selectedRegion.t1();
-      } else if( fileIndex < numLabels - 1 ) {
-         // Use start of next label as end
-         const LabelStruct *info1 = labels->GetLabel(fileIndex+1);
-         setting.t1 = info1->selectedRegion.t0();
-      } else {
-         setting.t1 = tracks.GetEndTime();
-      }
+               // Make sure the (final) file name is unique within the set of exports
+               FileNames::MakeNameUnique(otherNames, setting.filename);
 
-      if( name.empty() )
-         name = _("untitled");
+               /* do the metadata for this file */
+               // copy project metadata to start with
+               if (exportSettings.empty())
+               {
+                  setting.tags = Tags::Get( mProject );
+                  setting.tags.LoadDefaults();
+               }
+               else
+                  setting.tags = exportSettings.back().tags;
+               // over-ride with values
+               setting.tags.SetTag(TAG_TITLE, title);
+               // we use the track index for the track tag
+               // if you want the file index in the track, use
+               // the filename
+               setting.tags.SetTag(TAG_TRACK, trackIndex+1);
+            }
 
-      // store title of label to use in tags
-      title = name;
+            /* add the settings to the array of settings to be used for export */
+            exportSettings.push_back(setting);
 
-      // Numbering files...
-      if( !byName ) {
-         name.Printf(wxT("%s-%02d"), prefix, fileIndex + 1);
-      } else if( addNumber ) {
-         // Following discussion with GA, always have 2 digits
-         // for easy file-name sorting (on Windows)
-         name.Prepend(wxString::Format(wxT("%02d-"), fileIndex + 1));
-      }
-      Internat::SanitiseFilename(name, wxT("_"));
-
-      setting.filename.SetName(name);
-      {
-         // FIXME: TRAP_ERR User could have given an illegal filename prefix.
-         // in that case we should tell them, not fail silently.
-         wxASSERT(setting.filename.IsOk());     // burp if file name is broke
-
-         // Make sure the (final) file name is unique within the set of exports
-         FileNames::MakeNameUnique(otherNames, setting.filename);
-
-         /* do the metadata for this file */
-         // copy project metadata to start with
-         if (exportSettings.empty())
-         {
-            setting.tags = Tags::Get( mProject );
-            setting.tags.LoadDefaults();
+            fileIndex++; // bump the file index for the filename
          }
-         else
-            setting.tags = exportSettings.back().tags;
-         // over-ride with values
-         setting.tags.SetTag(TAG_TITLE, title);
-         setting.tags.SetTag(TAG_TRACK, fileIndex+1);
+         trackIndex++; // bump the track index for the track tag
       }
+   } else {
+      while( fileIndex < numLabels ) {
 
-      /* add the settings to the array of settings to be used for export */
-      exportSettings.push_back(setting);
+         // Get file name and starting time
+         if( fileIndex < 0 ) {
+            // create wxFileName for output file
+            name = setting.filename.GetName();
+            setting.t0 = 0.0;
+         } else {
+            info = labels->GetLabel(fileIndex);
+            name = (info->title);
+            setting.t0 = info->selectedRegion.t0();
+         }
 
-      fileIndex++;  // next label, count up one
+         // Figure out the ending time
+         if( info && !info->selectedRegion.isPoint() ) {
+            setting.t1 = info->selectedRegion.t1();
+         } else if( fileIndex < numLabels - 1 ) {
+            // Use start of next label as end
+            const LabelStruct *info1 = labels->GetLabel(fileIndex+1);
+            setting.t1 = info1->selectedRegion.t0();
+         } else {
+            setting.t1 = tracks.GetEndTime();
+         }
+
+         if( name.empty() )
+            name = _("untitled");
+
+         // store title of label to use in tags
+         title = name;
+
+         // Numbering files...
+         if( !byName ) {
+            name.Printf(wxT("%s-%02d"), prefix, fileIndex + 1);
+         } else if( addNumber ) {
+            // Following discussion with GA, always have 2 digits
+            // for easy file-name sorting (on Windows)
+            name.Prepend(wxString::Format(wxT("%02d-"), fileIndex + 1));
+         }
+         Internat::SanitiseFilename(name, wxT("_"));
+
+         setting.filename.SetName(name);
+         {
+            // FIXME: TRAP_ERR User could have given an illegal filename prefix.
+            // in that case we should tell them, not fail silently.
+            wxASSERT(setting.filename.IsOk());     // burp if file name is broke
+
+            // Make sure the (final) file name is unique within the set of exports
+            FileNames::MakeNameUnique(otherNames, setting.filename);
+
+            /* do the metadata for this file */
+            // copy project metadata to start with
+            if (exportSettings.empty())
+            {
+               setting.tags = Tags::Get( mProject );
+               setting.tags.LoadDefaults();
+            }
+            else
+               setting.tags = exportSettings.back().tags;
+            // over-ride with values
+            setting.tags.SetTag(TAG_TITLE, title);
+            setting.tags.SetTag(TAG_TRACK, fileIndex+1);
+         }
+
+         /* add the settings to the array of settings to be used for export */
+         exportSettings.push_back(setting);
+
+         fileIndex++;  // next label, count up one
+      }
    }
    std::swap(mExportSettings, exportSettings);
 }
